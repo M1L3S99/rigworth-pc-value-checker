@@ -34,4 +34,39 @@ for (const record of records) {
   }
 }
 
+const mockElements = new Map();
+const makeMockElement = () => ({
+  value: "",
+  hidden: false,
+  innerHTML: "",
+  textContent: "",
+  style: {},
+  addEventListener() {},
+  focus() {},
+  setAttribute() {},
+  removeAttribute() {},
+  scrollIntoView() {},
+});
+context.document = {
+  querySelector(selector) {
+    if (!mockElements.has(selector)) mockElements.set(selector, makeMockElement());
+    return mockElements.get(selector);
+  },
+};
+context.window = { PC_PARTS: records, scrollTo() {} };
+vm.runInContext(fs.readFileSync("app.js", "utf8"), context);
+
+const analyseDescription = context.window.RigWorth?.analyseDescription;
+if (typeof analyseDescription !== "function") throw new Error("Matcher test hook is unavailable");
+
+const repeatedStorage = analyseDescription("Storage: 1TB SSD\nSSD: 1TB SSD");
+if (repeatedStorage.filter((match) => match.category === "storage").length !== 1) {
+  throw new Error("Repeated mentions of the same storage device were counted twice");
+}
+
+const distinctStorage = analyseDescription("Storage: 1TB SSD\nHard drive: 1TB HDD");
+if (distinctStorage.filter((match) => match.category === "storage").length !== 2) {
+  throw new Error("Distinct SSD and HDD devices were incorrectly collapsed");
+}
+
 console.log(`Checks passed: ${records.length} price records across ${categories.size} categories.`);
