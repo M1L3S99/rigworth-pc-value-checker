@@ -1,0 +1,10 @@
+{
+  "name": "pc-value-checker",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:data": "node scripts/build-parts-data.mjs",
+    "start": "node server.mjs",
+    "check": "node scripts/check-app.mjs"
+  }
+}

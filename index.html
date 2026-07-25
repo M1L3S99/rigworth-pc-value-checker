@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Paste a PC description and estimate its UK used value from sold-parts data.">
+  <title>RigWorth — PC Value Checker</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <div class="page-shell">
+    <header class="site-header">
+      <a class="brand" href="#" aria-label="RigWorth home">
+        <span class="brand-mark" aria-hidden="true">RW</span>
+        <span>RigWorth</span>
+      </a>
+      <div class="data-stamp">
+        <span class="status-dot" aria-hidden="true"></span>
+        UK sold-price guide · 25 Jul 2026
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="hero-copy">
+          <p class="eyebrow">PC RESALE ESTIMATOR</p>
+          <h1>Paste the spec.<br><span>Get the price.</span></h1>
+          <p class="hero-intro">Turn a messy marketplace description into matched components and a realistic UK used value.</p>
+        </div>
+
+        <div class="input-card">
+          <div class="input-card__heading">
+            <div>
+              <span class="step-number">01</span>
+              <h2>Paste a PC description</h2>
+            </div>
+            <button class="text-button" id="exampleButton" type="button">Use example</button>
+          </div>
+          <label class="sr-only" for="descriptionInput">PC description</label>
+          <textarea id="descriptionInput" spellcheck="false" placeholder="Example:
+CPU: AMD Ryzen 5 3600
+GPU: NVIDIA RTX 2070 8GB
+Motherboard: MSI MPG X570 Gaming Edge WiFi
+RAM: 16GB DDR4
+Storage: 500GB SSD
+PSU: Corsair 650W"></textarea>
+          <div class="input-actions">
+            <button class="primary-button" id="valueButton" type="button">
+              <span>Value this PC</span>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+            </button>
+            <button class="secondary-button" id="clearButton" type="button">Clear</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="results-section" id="resultsSection" aria-live="polite">
+        <div class="results-empty" id="emptyState">
+          <div class="empty-visual" aria-hidden="true">
+            <span>CPU</span><span>GPU</span><span>RAM</span><span>SSD</span>
+          </div>
+          <h2>Your valuation will appear here</h2>
+          <p>Paste almost any listing format. You will be able to review and correct every match before trusting the total.</p>
+        </div>
+
+        <div class="results-content" id="resultsContent" hidden>
+          <div class="results-header">
+            <div>
+              <span class="step-number">02</span>
+              <h2>Review the matches</h2>
+              <p id="matchSummary">We found the following components.</p>
+            </div>
+            <button class="secondary-button compact" id="editDescriptionButton" type="button">Edit description</button>
+          </div>
+
+          <div class="valuation-grid">
+            <article class="value-card value-card--primary">
+              <p>Fair complete-PC value</p>
+              <div class="hero-price" id="fairValue">£0</div>
+              <div class="confidence-line">
+                <span id="overallConfidenceDot" class="confidence-dot"></span>
+                <span id="overallConfidence">Review needed</span>
+              </div>
+            </article>
+            <article class="value-card">
+              <p>Parts total</p>
+              <strong id="partsTotal">£0</strong>
+              <span>Individual sold values</span>
+            </article>
+            <article class="value-card">
+              <p>Quick sale</p>
+              <strong id="quickValue">£0</strong>
+              <span>About 85% of parts</span>
+            </article>
+            <article class="value-card">
+              <p>Clean &amp; presented</p>
+              <strong id="cleanValue">£0</strong>
+              <span>Up to 105% of parts</span>
+            </article>
+          </div>
+
+          <div class="workspace-grid">
+            <div class="matches-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Matched parts</h3>
+                  <p>Change a match if the listing was vague.</p>
+                </div>
+                <span class="count-badge" id="matchCount">0 parts</span>
+              </div>
+              <div class="parts-list" id="partsList"></div>
+
+              <div class="add-part">
+                <div>
+                  <h4>Add a missing part</h4>
+                  <p>Search the valuation catalogue manually.</p>
+                </div>
+                <div class="add-part__controls">
+                  <label class="sr-only" for="manualPartSearch">Search for a part</label>
+                  <input id="manualPartSearch" type="search" placeholder="e.g. B450 Tomahawk">
+                  <button id="addPartButton" class="secondary-button compact" type="button">Add best match</button>
+                </div>
+                <div class="manual-suggestions" id="manualSuggestions" hidden></div>
+              </div>
+            </div>
+
+            <aside class="insight-panel">
+              <div class="panel-heading">
+                <div>
+                  <h3>Valuation checks</h3>
+                  <p>What could change the result.</p>
+                </div>
+              </div>
+              <div id="warningsList" class="warnings-list"></div>
+              <div class="method-note">
+                <span class="method-note__icon" aria-hidden="true">£</span>
+                <div>
+                  <strong>Price method</strong>
+                  <p>Rounded estimates from UK sold/completed listings. Delivery is excluded.</p>
+                </div>
+              </div>
+            </aside>
+          </div>
+        </div>
+      </section>
+
+      <section class="method-section">
+        <div>
+          <p class="eyebrow">HOW IT WORKS</p>
+          <h2>Useful precision,<br>honest uncertainty.</h2>
+        </div>
+        <ol class="method-steps">
+          <li><span>1</span><div><strong>Extract</strong><p>Recognises model numbers, capacities and common abbreviations.</p></div></li>
+          <li><span>2</span><div><strong>Match</strong><p>Ranks close catalogue results and labels vague descriptions.</p></div></li>
+          <li><span>3</span><div><strong>Value</strong><p>Adds individual sold values and applies whole-PC sale factors.</p></div></li>
+        </ol>
+      </section>
+    </main>
+
+    <footer>
+      <p>RigWorth is an estimate, not a guaranteed selling price.</p>
+      <a href="uk-used-pc-parts-price-guide.md">Open the full price guide</a>
+    </footer>
+  </div>
+
+  <script src="parts-data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
