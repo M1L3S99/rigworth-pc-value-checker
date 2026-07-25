@@ -1,0 +1,10 @@
+Complete working gaming PC, clean and tested
+CPU: AMD Ryzen 5 4500, 6-Core Processor
+GPU: NVIDIA GeForce RTX 3050
+RAM: 16GB RAM DDR4
+Storage: WD Green SN3000 1TB
+PSU: Corsair 650W, model unknown
+Case: NZXT H510
+Cooler: AMD Wraith Stealth stock cooler
+No built-in WiFi. An adapter can be added, but the adapter is not included.
+Windows is installed; activation and licence transfer are not evidenced.

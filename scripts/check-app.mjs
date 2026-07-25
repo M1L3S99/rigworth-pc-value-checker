@@ -66,28 +66,92 @@ vm.runInContext(fs.readFileSync("app.js", "utf8"), context);
 
 const analyseDescription = context.window.RigWorth?.analyseDescription;
 if (typeof analyseDescription !== "function") throw new Error("Matcher test hook is unavailable");
+const estimateDescription = context.window.RigWorth?.estimateDescription;
+const extractComponentEntities = context.window.RigWorth?.extractComponentEntities;
+if (typeof estimateDescription !== "function" || typeof extractComponentEntities !== "function") {
+  throw new Error("Entity/valuation test hooks are unavailable");
+}
+
+function assert(condition, message) {
+  if (!condition) throw new Error(message);
+}
+
+function matchFor(estimate, category, predicate = () => true) {
+  return estimate.matches.find((match) => match.category === category && predicate(match));
+}
+
+function assertRange(valuation, low, high, label) {
+  assert(
+    valuation?.low === low && valuation?.high === high,
+    `${label} range should be £${low}–£${high}; found ${JSON.stringify(valuation)}`,
+  );
+}
 
 const repeatedStorage = analyseDescription("Storage: 1TB SSD\nSSD: 1TB SSD");
-if (repeatedStorage.filter((match) => match.category === "storage").length !== 1) {
-  throw new Error("Repeated mentions of the same storage device were counted twice");
-}
+assert(
+  repeatedStorage.filter((match) => match.category === "storage").length === 1,
+  "Repeated mentions of the same storage device were counted twice",
+);
 
 const distinctStorage = analyseDescription("Storage: 1TB SSD\nHard drive: 1TB HDD");
-if (distinctStorage.filter((match) => match.category === "storage").length !== 2) {
-  throw new Error("Distinct SSD and HDD devices were incorrectly collapsed");
+assert(
+  distinctStorage.filter((match) => match.category === "storage").length === 2,
+  "Distinct SSD and HDD devices were incorrectly collapsed",
+);
+
+for (const [description, expected] of [
+  ["AMD Ryzen 5 4500, 6-Core Processor", "Ryzen 5 4500"],
+  ["AMD Ryzen 7 5800X", "Ryzen 7 5800X"],
+  ["Intel Core i5-12400F", "Core i5-12400F"],
+]) {
+  const estimate = estimateDescription(description);
+  const cpu = matchFor(estimate, "cpu");
+  assert(cpu?.part?.name === expected, `${description} matched ${cpu?.part?.name ?? "nothing"}`);
+  assert(cpu.matched && cpu.familyIdentification === "high", `${description} was not a high-confidence safe match`);
 }
 
-const correctedExample = context.window.RigWorth.estimateDescription(`
-CPU: AMD Ryzen 7 5800X
-GPU: NVIDIA GeForce RTX 4060
-Motherboard: MSI B450 Tomahawk MAX
-RAM: 32GB DDR4 3600MHz
-Storage: 1TB NVMe SSD
-`);
-const nvmeMatch = correctedExample.matches.find((match) => match.category === "storage");
-if (!nvmeMatch?.part?.name.includes("model and health unknown")) {
-  throw new Error(`Explicit NVMe storage matched incorrectly: ${nvmeMatch?.part?.name ?? "none"}`);
-}
+const ryzen4500 = estimateDescription("AMD Ryzen 5 4500, 6-Core Processor");
+assert(
+  !ryzen4500.matches.some((match) => /Core Ultra 5 245K/i.test(match.part?.name ?? "")),
+  "AMD Ryzen 5 4500 was allowed to cross-match Intel Core Ultra 5 245K",
+);
+const manufacturerConflict = estimateDescription("CPU: AMD Core Ultra 5 245K");
+assert(
+  matchFor(manufacturerConflict, "cpu")?.matched === false,
+  "An explicit AMD/Intel manufacturer conflict was not returned as unmatched",
+);
+const gpuManufacturerConflict = estimateDescription("GPU: NVIDIA Radeon RX 6600");
+assert(
+  matchFor(gpuManufacturerConflict, "gpu")?.matched === false,
+  "An explicit NVIDIA/AMD manufacturer conflict was not returned as unmatched",
+);
+
+const rtx3050 = estimateDescription("NVIDIA GeForce RTX 3050");
+const rtx3050Match = matchFor(rtx3050, "gpu");
+assert(
+  rtx3050Match?.part?.id === "gpu-rtx-3050-unspecified",
+  `Unspecified RTX 3050 silently selected ${rtx3050Match?.part?.name ?? "nothing"}`,
+);
+assert(
+  rtx3050Match.familyIdentification === "high" && rtx3050Match.variantIdentification === "low",
+  "Generic RTX 3050 did not preserve high family/low variant confidence",
+);
+assertRange(rtx3050.valuation.partDetails.find((item) => item.part.id === "gpu-rtx-3050-unspecified")?.valuation, 100, 155, "Generic RTX 3050");
+const rtxAlternatives = rtx3050Match.alternatives.map((id) => records.find((record) => record.id === id)?.name ?? "");
+assert(rtxAlternatives.includes("GeForce RTX 3050 6GB"), "RTX 3050 6GB correction alternative is missing");
+assert(rtxAlternatives.includes("GeForce RTX 3050 8GB"), "RTX 3050 8GB correction alternative is missing");
+
+const wdEstimate = estimateDescription("Storage: WD Green SN3000 1TB");
+const wdMatch = matchFor(wdEstimate, "storage");
+assert(wdMatch?.part?.id === "storage-wd-green-sn3000-1tb", `WD Green SN3000 matched ${wdMatch?.part?.name ?? "nothing"}`);
+assert(wdMatch.part.interface === "NVMe", "WD Green SN3000 interface metadata is not NVMe");
+assert(wdMatch.part.formFactor === "M.2 2280", "WD Green SN3000 form factor metadata is wrong");
+assert(wdMatch.part.bus === "PCIe Gen4 x4", "WD Green SN3000 bus metadata is wrong");
+assert(wdMatch.part.manufacturerModel === "WDS100T4G0E", "WD Green SN3000 manufacturer model is wrong");
+assert(wdMatch.resolvedInterface === "nvme", "WD Green SN3000 did not infer NVMe from exact model metadata");
+assert(wdMatch.inferences.some((note) => /exact catalogue model/i.test(note)), "WD Green SN3000 interface inference is absent from the audit trail");
+assertRange(wdEstimate.valuation.partDetails.find((item) => item.part.id === wdMatch.part.id)?.valuation, 65, 85, "WD Green SN3000 1TB");
+assert(!wdEstimate.warningsHtml.includes("SSD interface missing"), "Exact WD SN3000 metadata still triggers the SSD-interface warning");
 
 for (const interfaceText of [
   "1TB NVMe SSD",
@@ -102,29 +166,165 @@ for (const interfaceText of [
   const storageMatch = analyseDescription(`Storage: ${interfaceText}`)
     .find((match) => match.category === "storage");
   const storagePart = records.find((record) => record.id === storageMatch?.partId);
-  if (!storagePart || /interface unknown/i.test(storagePart.name) || !/nvme/i.test(storagePart.name)) {
-    throw new Error(`${interfaceText} did not resolve to an explicit NVMe value: ${storagePart?.name ?? "none"}`);
+  assert(
+    storagePart && !/interface unknown/i.test(storagePart.name) && /nvme/i.test(storagePart.name),
+    `${interfaceText} did not resolve to an explicit NVMe value: ${storagePart?.name ?? "none"}`,
+  );
+}
+
+const ryzenFixture = fs.readFileSync("tests/fixtures/ryzen-4500-rtx-3050.txt", "utf8");
+const fixtureEstimate = estimateDescription(ryzenFixture);
+const fixtureCpu = matchFor(fixtureEstimate, "cpu");
+const fixtureGpu = matchFor(fixtureEstimate, "gpu");
+const fixtureRam = matchFor(fixtureEstimate, "ram");
+const fixtureSsd = matchFor(fixtureEstimate, "storage");
+assert(fixtureCpu?.part?.id === "cpu-ryzen-5-4500", "Ryzen fixture CPU identification regressed");
+assertRange(fixtureEstimate.valuation.partDetails.find((item) => item.part.id === fixtureCpu.part.id)?.valuation, 40, 55, "Ryzen 5 4500");
+assert(fixtureCpu.familyIdentification === "high", "Ryzen 5 4500 identification is not high");
+assert(fixtureGpu?.part?.id === "gpu-rtx-3050-unspecified", "Ryzen fixture must keep RTX 3050 VRAM unknown");
+assertRange(fixtureEstimate.valuation.partDetails.find((item) => item.part.id === fixtureGpu.part.id)?.valuation, 100, 155, "RTX 3050 unspecified");
+assert(fixtureGpu.variantIdentification === "low", "Ryzen fixture GPU variant is not uncertain");
+assert(fixtureRam?.part?.id === "ram-generic-16-ddr4", `Ryzen fixture RAM matched ${fixtureRam?.part?.name ?? "nothing"}`);
+assertRange(fixtureEstimate.valuation.partDetails.find((item) => item.part.id === fixtureRam.part.id)?.valuation, 30, 60, "16GB DDR4 unknown configuration");
+assert(fixtureSsd?.part?.id === "storage-wd-green-sn3000-1tb", "Ryzen fixture SSD identification regressed");
+assertRange(fixtureEstimate.valuation.partDetails.find((item) => item.part.id === fixtureSsd.part.id)?.valuation, 65, 85, "Ryzen fixture SSD");
+const fixtureAllowances = new Map(fixtureEstimate.valuation.allowances.map((item) => [item.key, item]));
+assertRange(fixtureAllowances.get("motherboard"), 25, 45, "Unknown functional AM4 motherboard");
+assert(!fixtureAllowances.has("wifi"), "Negated/not-included Wi-Fi received a non-zero allowance");
+assert(!fixtureAllowances.has("windows"), "Unevidenced Windows activation/licence received value");
+assert(!fixtureEstimate.warningsHtml.includes("SSD interface missing"), "Ryzen fixture still shows an SSD-interface warning");
+assert(fixtureEstimate.valuation.sampleCount >= 10_000, "Component fallback ran fewer than 10,000 samples");
+assert(
+  fixtureEstimate.valuation.percentiles.p25 <= fixtureEstimate.valuation.percentiles.p50
+    && fixtureEstimate.valuation.percentiles.p50 <= fixtureEstimate.valuation.percentiles.p75,
+  "Monte Carlo P25/P50/P75 are not ordered",
+);
+assert(
+  fixtureEstimate.valuation.fair.low >= 320 && fixtureEstimate.valuation.fair.high <= 415,
+  `Ryzen fixture private-sale range is outside the expected neighbourhood: ${JSON.stringify(fixtureEstimate.valuation.fair)}`,
+);
+assert(
+  fixtureEstimate.valuation.clean.high < 430,
+  `Ryzen fixture clean/tested upper estimate exceeded £430: ${JSON.stringify(fixtureEstimate.valuation.clean)}`,
+);
+const likeNewEstimate = estimateDescription(ryzenFixture.replace("clean and tested", "like new"));
+assert(
+  likeNewEstimate.valuation.conditionNotes.length === 0
+    && likeNewEstimate.valuation.clean.high <= likeNewEstimate.valuation.percentiles.p50,
+  "Seller wording 'like new' incorrectly created a condition uplift",
+);
+const includedWifiEstimate = estimateDescription(
+  ryzenFixture.replace(
+    "No built-in WiFi. An adapter can be added, but the adapter is not included.",
+    "Includes a Wi-Fi adapter.",
+  ),
+);
+assert(
+  includedWifiEstimate.valuation.allowances.some((item) => item.key === "wifi" && item.low === 5 && item.high === 15),
+  "An explicitly included Wi-Fi adapter was not valued",
+);
+
+const entityFixture = fs.readFileSync("tests/fixtures/gtx-1080-i5-8400-entities.txt", "utf8");
+const entities = extractComponentEntities(entityFixture);
+assert(entities.filter((entity) => entity.componentType === "gpu").length === 1, "GTX 1080 fixture did not extract exactly one GPU");
+assert(entities.filter((entity) => entity.componentType === "cpu").length === 1, "GTX 1080 fixture did not extract exactly one CPU");
+const psuEntity = entities.find((entity) => entity.componentType === "psu");
+assert(psuEntity?.wattage === 500 && psuEntity.manufacturer === null, "Unknown-brand 500W PSU entity is wrong");
+const storageEntities = entities.filter((entity) => entity.componentType === "storage");
+assert(storageEntities.length === 2, `Expected two storage entities; found ${storageEntities.length}`);
+assert(storageEntities.some((entity) => entity.totalCapacity === 256 && entity.storageMedium === "ssd"), "256GB SSD entity is missing");
+assert(storageEntities.some((entity) => entity.totalCapacity === 1000 && entity.storageMedium === "hdd"), "1TB HDD entity is missing");
+assert(!storageEntities.some((entity) => entity.totalCapacity === 1000 && entity.storageMedium === "ssd"), "Conjoined storage was converted into a 1TB SSD");
+const ramEntity = entities.find((entity) => entity.componentType === "ram");
+assert(
+  ramEntity?.quantity === 3 && ramEntity.unitCapacity === 4 && ramEntity.totalCapacity === 12,
+  `3×4GB RAM arithmetic is wrong: ${JSON.stringify(ramEntity)}`,
+);
+for (const ramText of [
+  "3x4GB DDR4 RAM",
+  "3 × 4 GB DDR4 RAM",
+  "three 4GB sticks DDR4 RAM",
+  "4GB x3 DDR4 RAM",
+]) {
+  const entity = extractComponentEntities(ramText).find((item) => item.componentType === "ram");
+  assert(
+    entity?.quantity === 3 && entity.unitCapacity === 4 && entity.totalCapacity === 12,
+    `${ramText} did not retain 3×4GB = 12GB arithmetic: ${JSON.stringify(entity)}`,
+  );
+}
+const mixedLineEntities = extractComponentEntities("16GB DDR4 RAM and 1TB SSD");
+assert(
+  mixedLineEntities.some((entity) => entity.componentType === "ram" && entity.totalCapacity === 16)
+    && mixedLineEntities.some((entity) => entity.componentType === "storage" && entity.totalCapacity === 1000),
+  "Mixed RAM/storage line did not produce two independent entities",
+);
+assert(
+  !(mixedLineEntities[0].sourceStart < mixedLineEntities[1].sourceEnd
+    && mixedLineEntities[1].sourceStart < mixedLineEntities[0].sourceEnd),
+  "Mixed RAM/storage entities consumed overlapping source spans",
+);
+for (let left = 0; left < entities.length; left += 1) {
+  for (let right = left + 1; right < entities.length; right += 1) {
+    const overlaps = entities[left].sourceStart < entities[right].sourceEnd
+      && entities[right].sourceStart < entities[left].sourceEnd;
+    assert(!overlaps, `Component source spans overlap: ${entities[left].sourceText} / ${entities[right].sourceText}`);
   }
 }
+const entityEstimate = estimateDescription(entityFixture);
+assert(matchFor(entityEstimate, "gpu")?.part?.name === "GeForce GTX 1080", "GTX 1080 fixture GPU match is wrong");
+assert(matchFor(entityEstimate, "cpu")?.part?.name === "Core i5-8400", "GTX 1080 fixture CPU match is wrong");
+assert(matchFor(entityEstimate, "psu")?.part?.id === "psu-generic-500", "GTX 1080 fixture PSU match is wrong");
+assert(entityEstimate.matches.filter((match) => match.category === "storage").length === 2, "SSD and HDD catalogue matches were merged");
+assert(
+  entityEstimate.matches.some((match) => match.part?.id === "storage-generic-256-ssd"),
+  `256GB SSD generic match is missing: ${entityEstimate.matches.filter((match) => match.category === "storage").map((match) => match.part?.name).join(", ")}`,
+);
+assert(
+  entityEstimate.matches.some((match) => match.part?.id === "storage-generic-1tb-hdd"),
+  `1TB HDD generic match is missing: ${entityEstimate.matches.filter((match) => match.category === "storage").map((match) => match.part?.name).join(", ")}`,
+);
+assert(matchFor(entityEstimate, "ram")?.part?.id === "ram-generic-12-ddr4-3x4", "12GB 3×4GB RAM was snapped to another capacity");
+assert(!entityEstimate.matches.some((match) => /\b16GB\b/i.test(match.part?.name ?? "")), "12GB RAM was silently upgraded to 16GB");
+assertRange(
+  entityEstimate.valuation.allowances.find((item) => item.key === "motherboard"),
+  30,
+  50,
+  "Unknown compatible Intel 300-series motherboard",
+);
 
-const ramDetail = correctedExample.valuation.partDetails.find((item) => item.part.category === "ram");
-if (ramDetail?.valuation.low !== 85 || ramDetail?.valuation.high !== 150) {
-  throw new Error(`Expected uncertain 32GB DDR4-3600 value range; found ${JSON.stringify(ramDetail?.valuation)}`);
-}
-
-const allowanceKeys = new Set(correctedExample.valuation.allowances.map((item) => item.key));
-for (const key of ["case", "psu", "cooler"]) {
-  if (!allowanceKeys.has(key)) throw new Error(`Missing conservative ${key} allowance`);
-}
-
-if (correctedExample.valuation.componentMid < 620 || correctedExample.valuation.componentMid > 635) {
-  throw new Error(`Corrected component midpoint is out of range: ${correctedExample.valuation.componentMid}`);
-}
-if (correctedExample.valuation.completeParts.low < 650 || correctedExample.valuation.completeParts.high > 750) {
-  throw new Error(`Complete-parts range is implausible: ${JSON.stringify(correctedExample.valuation.completeParts)}`);
-}
-if (correctedExample.valuation.exactComparableCount !== 0 || correctedExample.valuation.censoredComparableCount !== 1) {
-  throw new Error("Best Offer/upper-bound comparable handling regressed");
-}
+const systemsLength = marketSales.systems.length;
+marketSales.systems.push(
+  {
+    id: "test-sold-1", soldDate: "2026-07-20", itemPrice: 360, sellerType: "private",
+    condition: "used", priceType: "exact", cpu: "Ryzen 5 4500", gpu: "RTX 3050",
+    ramGb: 16, ssdGb: 1000, hddGb: 0,
+  },
+  {
+    id: "test-sold-2", soldDate: "2026-07-10", itemPrice: 380, sellerType: "private",
+    condition: "used", priceType: "exact", cpu: "Ryzen 5 4500", gpu: "RTX 3050",
+    ramGb: 16, ssdGb: 1000, hddGb: 0,
+  },
+  {
+    id: "test-active-outlier", soldDate: "2026-07-24", itemPrice: 900, sellerType: "business",
+    condition: "new", priceType: "exact", listingStatus: "active", cpu: "Ryzen 5 4500",
+    gpu: "RTX 3050", ramGb: 16, ssdGb: 1000, hddGb: 0,
+  },
+  {
+    id: "test-best-offer", soldDate: "2026-07-23", itemPrice: 800, sellerType: "private",
+    condition: "used", priceType: "exact", acceptedBestOfferUnknown: true, cpu: "Ryzen 5 4500",
+    gpu: "RTX 3050", ramGb: 16, ssdGb: 1000, hddGb: 0,
+  },
+);
+const comparableEstimate = estimateDescription(ryzenFixture);
+assert(comparableEstimate.valuation.exactComparableCount === 2, "Active/new/unknown-Best-Offer comparables were not excluded");
+assert(comparableEstimate.valuation.censoredComparableCount >= 1, "Unknown accepted Best Offer was not marked as censored");
+assert(comparableEstimate.valuation.percentiles.p50 < 500, "Comparable estimate was distorted by excluded high asking prices");
+marketSales.systems.splice(systemsLength);
 
 console.log(`Checks passed: ${records.length} price records across ${categories.size} categories.`);
+console.log(
+  `Ryzen fixture: P25 £${fixtureEstimate.valuation.percentiles.p25}, `
+  + `P50 £${fixtureEstimate.valuation.percentiles.p50}, `
+  + `P75 £${fixtureEstimate.valuation.percentiles.p75}, `
+  + `clean upper £${fixtureEstimate.valuation.clean.high}.`,
+);

@@ -1266,7 +1266,19 @@ window.PC_PARTS = [
     "name": "GeForce RTX 3050 6GB",
     "alias": "RTX3050 6G",
     "price": 120,
-    "confidence": "medium"
+    "confidence": "medium",
+    "priceLow": 100,
+    "priceHigh": 140,
+    "valuationConfidence": "medium",
+    "manufacturer": "nvidia",
+    "family": "geforce rtx",
+    "modelNumber": "3050",
+    "variant": "6gb",
+    "aliases": [
+      "RTX 3050 6GB",
+      "GeForce RTX 3050 6GB"
+    ],
+    "evidenceNote": "UK used private-sale range dated 2026-07-25."
   },
   {
     "id": "gpu-159",
@@ -1274,7 +1286,19 @@ window.PC_PARTS = [
     "name": "GeForce RTX 3050 8GB",
     "alias": "RTX3050 8G",
     "price": 140,
-    "confidence": "medium"
+    "confidence": "medium",
+    "priceLow": 125,
+    "priceHigh": 155,
+    "valuationConfidence": "medium",
+    "manufacturer": "nvidia",
+    "family": "geforce rtx",
+    "modelNumber": "3050",
+    "variant": "8gb",
+    "aliases": [
+      "RTX 3050 8GB",
+      "GeForce RTX 3050 8GB"
+    ],
+    "evidenceNote": "UK used private-sale range dated 2026-07-25."
   },
   {
     "id": "gpu-160",
@@ -3120,12 +3144,130 @@ window.PC_PARTS = [
     "confidence": "medium"
   },
   {
+    "id": "cpu-ryzen-5-4500",
+    "category": "cpu",
+    "name": "Ryzen 5 4500",
+    "alias": "R5 4500",
+    "aliases": [
+      "AMD Ryzen 5 4500",
+      "Ryzen 5 4500",
+      "R5 4500"
+    ],
+    "manufacturer": "amd",
+    "family": "ryzen 5",
+    "modelNumber": "4500",
+    "price": 47.5,
+    "priceLow": 40,
+    "priceHigh": 55,
+    "confidence": "high",
+    "valuationConfidence": "medium",
+    "evidenceNote": "UK used private-sale range dated 2026-07-25."
+  },
+  {
+    "id": "gpu-rtx-3050-unspecified",
+    "category": "gpu",
+    "name": "GeForce RTX 3050 (VRAM unspecified)",
+    "alias": "RTX3050",
+    "aliases": [
+      "RTX 3050",
+      "GeForce RTX 3050",
+      "NVIDIA GeForce RTX 3050"
+    ],
+    "manufacturer": "nvidia",
+    "family": "geforce rtx",
+    "modelNumber": "3050",
+    "variant": "unknown",
+    "price": 127.5,
+    "priceLow": 100,
+    "priceHigh": 155,
+    "confidence": "high",
+    "valuationConfidence": "low",
+    "evidenceNote": "Blended 6GB/8GB UK used private-sale envelope dated 2026-07-25."
+  },
+  {
+    "id": "storage-wd-green-sn3000-1tb",
+    "category": "storage",
+    "name": "WD Green SN3000 1TB NVMe",
+    "alias": "WDS100T4G0E",
+    "aliases": [
+      "WD Green SN3000 1TB",
+      "Western Digital Green SN3000 1TB",
+      "WDS100T4G0E"
+    ],
+    "manufacturer": "western digital",
+    "family": "green",
+    "modelNumber": "sn3000",
+    "variant": "1tb",
+    "capacityGb": 1000,
+    "storageMedium": "ssd",
+    "interface": "NVMe",
+    "formFactor": "M.2 2280",
+    "bus": "PCIe Gen4 x4",
+    "manufacturerModel": "WDS100T4G0E",
+    "price": 75,
+    "priceLow": 65,
+    "priceHigh": 85,
+    "confidence": "high",
+    "valuationConfidence": "medium",
+    "evidenceNote": "UK used private-sale range dated 2026-07-25."
+  },
+  {
+    "id": "motherboard-unknown-am4",
+    "category": "motherboard",
+    "name": "Unknown functional AM4 motherboard",
+    "alias": "unknown compatible AM4 motherboard",
+    "manufacturer": "unknown",
+    "family": "am4",
+    "price": 35,
+    "priceLow": 25,
+    "priceHigh": 45,
+    "confidence": "low",
+    "valuationConfidence": "low",
+    "evidenceNote": "Conservative unidentified-part allowance dated 2026-07-25."
+  },
+  {
+    "id": "motherboard-unknown-intel-300",
+    "category": "motherboard",
+    "name": "Unknown compatible Intel 300-series motherboard",
+    "alias": "unknown i5-8400 motherboard",
+    "manufacturer": "intel",
+    "family": "intel 300 series",
+    "price": 40,
+    "priceLow": 30,
+    "priceHigh": 50,
+    "confidence": "low",
+    "valuationConfidence": "low",
+    "evidenceNote": "Conservative unidentified-part allowance dated 2026-07-25."
+  },
+  {
+    "id": "ram-generic-12-ddr4-3x4",
+    "category": "ram",
+    "name": "12GB DDR4 (3×4GB)",
+    "alias": "3x4GB DDR4 three 4GB sticks",
+    "capacityGb": 12,
+    "quantity": 3,
+    "unitCapacityGb": 4,
+    "family": "ddr4",
+    "price": 27.5,
+    "priceLow": 20,
+    "priceHigh": 35,
+    "confidence": "medium",
+    "valuationConfidence": "low",
+    "evidenceNote": "Configuration-specific UK used estimate dated 2026-07-25."
+  },
+  {
     "id": "ram-generic-16-ddr4",
     "category": "ram",
     "name": "16GB DDR4 (configuration unknown)",
     "alias": "16GB RAM DDR4",
+    "capacityGb": 16,
+    "family": "ddr4",
     "price": 45,
-    "confidence": "medium"
+    "priceLow": 30,
+    "priceHigh": 60,
+    "confidence": "medium",
+    "valuationConfidence": "low",
+    "evidenceNote": "Unknown-configuration UK used range dated 2026-07-25."
   },
   {
     "id": "ram-generic-32-ddr4-3600",
@@ -3166,10 +3308,44 @@ window.PC_PARTS = [
     "confidence": "medium"
   },
   {
+    "id": "storage-generic-256-ssd",
+    "category": "storage",
+    "name": "256GB SSD (interface unknown)",
+    "alias": "255GB SSD 256GB SSD",
+    "capacityGb": 256,
+    "storageMedium": "ssd",
+    "interface": "unknown",
+    "genericVariant": true,
+    "price": 17,
+    "priceLow": 12,
+    "priceHigh": 22,
+    "confidence": "medium",
+    "valuationConfidence": "low"
+  },
+  {
+    "id": "storage-generic-1tb-hdd",
+    "category": "storage",
+    "name": "1TB HDD (form factor/RPM unknown)",
+    "alias": "1TB hard drive 1TB hard disk",
+    "capacityGb": 1000,
+    "storageMedium": "hdd",
+    "interface": "sata",
+    "genericVariant": true,
+    "price": 15,
+    "priceLow": 10,
+    "priceHigh": 20,
+    "confidence": "medium",
+    "valuationConfidence": "low",
+    "evidenceNote": "Unspecified used HDD range dated 2026-07-25."
+  },
+  {
     "id": "storage-generic-500-ssd",
     "category": "storage",
     "name": "500GB SSD (interface unknown)",
     "alias": "500GB SSD 512GB SSD",
+    "capacityGb": 500,
+    "storageMedium": "ssd",
+    "interface": "unknown",
     "price": 35,
     "confidence": "medium"
   },
@@ -3216,11 +3392,13 @@ window.PC_PARTS = [
     "category": "psu",
     "name": "500W PSU (brand/model unknown)",
     "alias": "500 watt power supply 500W PSU",
-    "price": 18,
-    "priceLow": 10,
-    "priceHigh": 25,
+    "wattage": 500,
+    "price": 5,
+    "priceLow": 0,
+    "priceHigh": 10,
     "confidence": "low",
-    "valuationConfidence": "low"
+    "valuationConfidence": "low",
+    "evidenceNote": "Unknown-brand PSU allowance dated 2026-07-25."
   },
   {
     "id": "psu-generic-600",
@@ -3238,21 +3416,23 @@ window.PC_PARTS = [
     "category": "case",
     "name": "Unknown functional case",
     "alias": "PC case gaming case chassis",
-    "price": 30,
-    "priceLow": 20,
-    "priceHigh": 40,
+    "price": 17.5,
+    "priceLow": 10,
+    "priceHigh": 25,
     "confidence": "low",
-    "valuationConfidence": "low"
+    "valuationConfidence": "low",
+    "evidenceNote": "Unidentified functional case allowance dated 2026-07-25."
   },
   {
     "id": "cooler-generic",
     "category": "cooler",
-    "name": "Unknown functional CPU cooler",
+    "name": "Unknown/basic CPU cooler",
     "alias": "CPU cooler air cooler heatsink",
-    "price": 15,
-    "priceLow": 10,
-    "priceHigh": 20,
+    "price": 4,
+    "priceLow": 0,
+    "priceHigh": 8,
     "confidence": "low",
-    "valuationConfidence": "low"
+    "valuationConfidence": "low",
+    "evidenceNote": "Unidentified basic cooler allowance dated 2026-07-25."
   }
 ];
