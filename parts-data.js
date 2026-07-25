@@ -277,8 +277,12 @@ window.PC_PARTS = [
     "category": "cpu",
     "name": "Ryzen 7 5800X",
     "alias": "R7 5800X",
-    "price": 100,
-    "confidence": "medium"
+    "price": 140,
+    "confidence": "medium",
+    "priceLow": 132,
+    "priceHigh": 150,
+    "valuationConfidence": "medium",
+    "evidenceNote": "Recent UK private-sale evidence; Buyer Protection excluded."
   },
   {
     "id": "cpu-36",
@@ -1357,8 +1361,12 @@ window.PC_PARTS = [
     "category": "gpu",
     "name": "GeForce RTX 4060",
     "alias": "RTX4060 8GB",
-    "price": 250,
-    "confidence": "medium"
+    "price": 230,
+    "confidence": "medium",
+    "priceLow": 220,
+    "priceHigh": 241,
+    "valuationConfidence": "medium",
+    "evidenceNote": "Recent UK used-sale range."
   },
   {
     "id": "gpu-171",
@@ -2062,7 +2070,10 @@ window.PC_PARTS = [
     "name": "MSI B450 Tomahawk MAX",
     "alias": "AM4 B450",
     "price": 55,
-    "confidence": "medium"
+    "confidence": "medium",
+    "priceLow": 50,
+    "priceHigh": 60,
+    "valuationConfidence": "medium"
   },
   {
     "id": "motherboard-259",
@@ -2557,8 +2568,12 @@ window.PC_PARTS = [
     "category": "storage",
     "name": "1TB M.2 NVMe SSD",
     "alias": "",
-    "price": 85,
-    "confidence": "high"
+    "price": 87,
+    "confidence": "high",
+    "priceLow": 84,
+    "priceHigh": 90,
+    "valuationConfidence": "medium",
+    "evidenceNote": "Identifiable used NVMe evidence; delivery excluded."
   },
   {
     "id": "storage-321",
@@ -3113,12 +3128,26 @@ window.PC_PARTS = [
     "confidence": "medium"
   },
   {
+    "id": "ram-generic-32-ddr4-3600",
+    "category": "ram",
+    "name": "32GB DDR4 3600MHz (configuration/model unknown)",
+    "alias": "32GB RAM DDR4 3600 32GB DDR4-3600",
+    "price": 115,
+    "priceLow": 85,
+    "priceHigh": 150,
+    "confidence": "medium",
+    "valuationConfidence": "medium"
+  },
+  {
     "id": "ram-generic-32-ddr4",
     "category": "ram",
     "name": "32GB DDR4 (configuration unknown)",
     "alias": "32GB RAM DDR4",
-    "price": 85,
-    "confidence": "medium"
+    "price": 100,
+    "priceLow": 75,
+    "priceHigh": 130,
+    "confidence": "medium",
+    "valuationConfidence": "medium"
   },
   {
     "id": "ram-generic-16-ddr5",
@@ -3161,35 +3190,69 @@ window.PC_PARTS = [
     "confidence": "medium"
   },
   {
+    "id": "storage-generic-1tb-nvme",
+    "category": "storage",
+    "name": "1TB NVMe SSD — model and health unknown",
+    "alias": "1TB NVMe SSD 1TB NVME M.2 NVMe PCIe SSD PCI-E SSD Gen3 SSD Gen4 SSD Gen5 SSD",
+    "price": 87,
+    "priceLow": 84,
+    "priceHigh": 90,
+    "confidence": "medium",
+    "valuationConfidence": "medium"
+  },
+  {
     "id": "psu-generic-corsair",
     "category": "psu",
     "name": "Corsair PSU (model and wattage unknown)",
     "alias": "Corsair power supply Corsair PSU",
-    "price": 25,
-    "confidence": "low"
+    "price": 23,
+    "priceLow": 15,
+    "priceHigh": 30,
+    "confidence": "low",
+    "valuationConfidence": "low"
   },
   {
     "id": "psu-generic-500",
     "category": "psu",
     "name": "500W PSU (brand/model unknown)",
     "alias": "500 watt power supply 500W PSU",
-    "price": 10,
-    "confidence": "low"
+    "price": 18,
+    "priceLow": 10,
+    "priceHigh": 25,
+    "confidence": "low",
+    "valuationConfidence": "low"
   },
   {
     "id": "psu-generic-600",
     "category": "psu",
     "name": "600–650W PSU (brand/model unknown)",
     "alias": "600W PSU 650W PSU power supply",
-    "price": 20,
-    "confidence": "low"
+    "price": 23,
+    "priceLow": 15,
+    "priceHigh": 30,
+    "confidence": "low",
+    "valuationConfidence": "low"
+  },
+  {
+    "id": "case-generic",
+    "category": "case",
+    "name": "Unknown functional case",
+    "alias": "PC case gaming case chassis",
+    "price": 30,
+    "priceLow": 20,
+    "priceHigh": 40,
+    "confidence": "low",
+    "valuationConfidence": "low"
   },
   {
     "id": "cooler-generic",
     "category": "cooler",
-    "name": "Basic CPU air cooler",
+    "name": "Unknown functional CPU cooler",
     "alias": "CPU cooler air cooler heatsink",
-    "price": 10,
-    "confidence": "low"
+    "price": 15,
+    "priceLow": 10,
+    "priceHigh": 20,
+    "confidence": "low",
+    "valuationConfidence": "low"
   }
 ];

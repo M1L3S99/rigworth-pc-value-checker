@@ -2,6 +2,7 @@
   "use strict";
 
   const parts = Array.isArray(window.PC_PARTS) ? window.PC_PARTS : [];
+  const marketSales = window.PC_MARKET_SALES ?? { referenceDate: "2026-07-25", components: [], systems: [] };
   const byId = new Map(parts.map((part) => [part.id, part]));
   const state = { matches: [], description: "" };
   let uidCounter = 0;
@@ -17,6 +18,9 @@
     resultsSection: document.querySelector("#resultsSection"),
     partsList: document.querySelector("#partsList"),
     partsTotal: document.querySelector("#partsTotal"),
+    allowanceValue: document.querySelector("#allowanceValue"),
+    allowanceSummary: document.querySelector("#allowanceSummary"),
+    completePartsValue: document.querySelector("#completePartsValue"),
     quickValue: document.querySelector("#quickValue"),
     fairValue: document.querySelector("#fairValue"),
     cleanValue: document.querySelector("#cleanValue"),
@@ -25,6 +29,7 @@
     overallConfidence: document.querySelector("#overallConfidence"),
     overallConfidenceDot: document.querySelector("#overallConfidenceDot"),
     warningsList: document.querySelector("#warningsList"),
+    valuationMethod: document.querySelector("#valuationMethod"),
     manualSearch: document.querySelector("#manualPartSearch"),
     addPartButton: document.querySelector("#addPartButton"),
   };
@@ -37,7 +42,7 @@
     storage: { label: "Storage", short: "SSD", required: true },
     psu: { label: "Power supply", short: "PSU", required: true },
     case: { label: "Case", short: "CASE", required: true },
-    cooler: { label: "Cooling", short: "COOL", required: false },
+    cooler: { label: "Cooling", short: "COOL", required: true },
   };
 
   const STOP_TOKENS = new Set([
@@ -66,6 +71,8 @@ PSU: Corsair 650W`;
       .replace(/\bhard[\s-]*(?:disk|drive)\b/g, "hdd")
       .replace(/\bhd\b/g, "hdd")
       .replace(/\bm[\s.]*2\b/g, "m2")
+      .replace(/\bpci[\s-]*e(?:xpress)?\s*(?:ssd)?\b/g, "nvme ssd")
+      .replace(/\bgen\s*([345])\s*(?:nvme\s*)?ssd\b/g, "nvme gen$1 ssd")
       .replace(/\b(\d+)\s*(gb|tb|mhz|w)\b/g, "$1$2")
       .replace(/\brtx\s*5060\s+16(?:gb)?\b/g, "rtx 5060 ti 16gb")
       .replace(/\brtx\s*4060\s+16(?:gb)?\b/g, "rtx 4060 ti 16gb")
@@ -178,8 +185,12 @@ PSU: Corsair 650W`;
       score += hasSpecificConfiguration ? -0.08 : 0.08;
     }
 
+    const inputSpecifiesNvme = /\b(nvme|gen[345])\b/.test(text);
+    const inputSpecifiesSata = /\bsata\b/.test(text);
     const inputSpecifiesSsd = /\b(ssd|nvme)\b/.test(text);
     const inputSpecifiesHdd = /\bhdd\b/.test(text) && !inputSpecifiesSsd;
+    const partIsNvme = /\b(nvme|m2)\b/.test(partText);
+    const partIsSata = /\bsata\b/.test(partText);
     const partIsSsd = /\b(ssd|nvme)\b/.test(partText);
     const partIsHdd = /\bhdd\b/.test(partText);
     if (inputSpecifiesSsd) {
@@ -188,6 +199,14 @@ PSU: Corsair 650W`;
     } else if (inputSpecifiesHdd) {
       if (partIsHdd) score += 0.18;
       if (partIsSsd) score -= 0.3;
+    }
+    if (inputSpecifiesNvme) {
+      if (partIsNvme) score += 0.24;
+      else if (partIsSsd) score -= 0.34;
+    }
+    if (inputSpecifiesSata) {
+      if (partIsSata) score += 0.2;
+      else if (partIsSsd) score -= 0.24;
     }
 
     for (const modifier of ["ti", "super"]) {
@@ -309,13 +328,11 @@ PSU: Corsair 650W`;
     return matches;
   }
 
-  function matchConfidence(match) {
-    const part = byId.get(match.partId);
-    const sourceWeight = { high: 0.98, medium: 0.82, low: 0.62 }[part?.confidence] ?? 0.7;
-    const combined = match.matchScore * 0.65 + sourceWeight * 0.35;
-    if (combined >= 0.84) return { label: "High", className: "high", value: combined };
-    if (combined >= 0.66) return { label: "Medium", className: "medium", value: combined };
-    return { label: "Low", className: "low", value: combined };
+  function identificationConfidence(match) {
+    const value = match.matchScore;
+    if (value >= 0.8) return { label: "High", className: "high", value };
+    if (value >= 0.58) return { label: "Medium", className: "medium", value };
+    return { label: "Low", className: "low", value };
   }
 
   function formatGBP(value) {
@@ -330,6 +347,297 @@ PSU: Corsair 650W`;
     return Math.round(value / 5) * 5;
   }
 
+  function normalisedSellerPrice(sale) {
+    if (Number.isFinite(sale?.itemPrice)) return sale.itemPrice;
+    if (Number.isFinite(sale?.checkoutTotal) && Number.isFinite(sale?.buyerProtectionFee)) {
+      return sale.checkoutTotal - sale.buyerProtectionFee;
+    }
+    return null;
+  }
+
+  function saleAgeDays(sale) {
+    if (!sale?.soldDate || !marketSales.referenceDate) return null;
+    const sold = Date.parse(`${sale.soldDate}T00:00:00Z`);
+    const reference = Date.parse(`${marketSales.referenceDate}T00:00:00Z`);
+    return Number.isFinite(sold) && Number.isFinite(reference)
+      ? Math.max(0, (reference - sold) / 86_400_000)
+      : null;
+  }
+
+  function eligibleExactSale(sale, maxAgeDays = 90) {
+    const age = saleAgeDays(sale);
+    return sale?.priceType === "exact"
+      && sale.bestOfferAccepted !== true
+      && sale.condition !== "faulty"
+      && sale.condition !== "parts-only"
+      && Number.isFinite(normalisedSellerPrice(sale))
+      && age !== null
+      && age <= maxAgeDays;
+  }
+
+  function weightedQuantile(samples, quantile) {
+    if (!samples.length) return null;
+    const ordered = [...samples].sort((a, b) => a.value - b.value);
+    const target = ordered.reduce((sum, sample) => sum + sample.weight, 0) * quantile;
+    let cumulative = 0;
+    for (const sample of ordered) {
+      cumulative += sample.weight;
+      if (cumulative >= target) return sample.value;
+    }
+    return ordered.at(-1).value;
+  }
+
+  function recentComponentRange(part) {
+    let samples = (marketSales.components ?? [])
+      .filter((sale) => sale.partId === part.id && eligibleExactSale(sale))
+      .filter((sale) => sale.sellerType === "private")
+      .map((sale) => {
+        const halfLife = ["gpu", "ram", "storage"].includes(part.category) ? 28 : 45;
+        return {
+          value: normalisedSellerPrice(sale),
+          weight: Math.exp((-Math.LN2 * saleAgeDays(sale)) / halfLife),
+        };
+      });
+
+    if (samples.length < 3) return null;
+    if (samples.length >= 5) {
+      const lowerFence = weightedQuantile(samples, 0.1);
+      const upperFence = weightedQuantile(samples, 0.9);
+      samples = samples.map((sample) => ({
+        ...sample,
+        value: Math.min(upperFence, Math.max(lowerFence, sample.value)),
+      }));
+    }
+
+    return {
+      low: weightedQuantile(samples, 0.25),
+      mid: weightedQuantile(samples, 0.5),
+      high: weightedQuantile(samples, 0.75),
+      confidence: samples.length >= 5 ? "high" : "medium",
+      source: "recent weighted UK sales",
+    };
+  }
+
+  function partValuation(part) {
+    const recent = recentComponentRange(part);
+    if (recent) return recent;
+
+    const price = Number(part?.price) || 0;
+    let low = Number.isFinite(part?.priceLow) ? part.priceLow : null;
+    let high = Number.isFinite(part?.priceHigh) ? part.priceHigh : null;
+
+    if (low === null || high === null) {
+      let spread = { high: 0.08, medium: 0.16, low: 0.3 }[part?.confidence] ?? 0.2;
+      if (/configuration unknown|model and wattage unknown|unknown functional/i.test(part?.name ?? "")) {
+        spread = Math.max(spread, 0.28);
+      }
+      low = roundFive(Math.max(0, price * (1 - spread)));
+      high = roundFive(price * (1 + spread));
+    }
+
+    const mid = Number.isFinite(part?.price) ? part.price : (low + high) / 2;
+    const relativeSpread = mid ? (high - low) / mid : 1;
+    const confidence = part?.valuationConfidence
+      ?? (relativeSpread <= 0.16 ? "high" : relativeSpread <= 0.45 ? "medium" : "low");
+
+    return { low, mid, high, confidence, source: part?.evidenceNote ?? "catalogue range" };
+  }
+
+  function formatRange(range) {
+    if (!range) return "£0";
+    const low = Math.round(range.low);
+    const high = Math.round(range.high);
+    return low === high ? formatGBP(low) : `${formatGBP(low)}–${formatGBP(high)}`;
+  }
+
+  const UNKNOWN_ALLOWANCES = {
+    case: { key: "case", label: "Unknown functional case", low: 20, high: 40 },
+    psu: { key: "psu", label: "Unknown functional PSU", low: 15, high: 30, risk: true },
+    cooler: { key: "cooler", label: "Unknown CPU cooler", low: 10, high: 20 },
+    accessories: { key: "accessories", label: "Fans / Wi-Fi accessory", low: 5, high: 15 },
+  };
+
+  function looksLikeCompleteDesktop(matches, description) {
+    if (/\b(parts only|components only|bundle only|not a complete pc)\b/.test(normalize(description))) return false;
+    const found = new Set(matches.map((match) => match.category));
+    const coreCount = ["cpu", "gpu", "motherboard", "ram", "storage"]
+      .filter((category) => found.has(category)).length;
+    return coreCount >= 4;
+  }
+
+  function unknownAllowances() {
+    if (!looksLikeCompleteDesktop(state.matches, state.description)) return [];
+    const found = new Set(state.matches.map((match) => match.category));
+    const text = normalize(state.description);
+    const allowances = [];
+
+    for (const key of ["case", "psu", "cooler"]) {
+      if (!found.has(key)) allowances.push(UNKNOWN_ALLOWANCES[key]);
+    }
+
+    if (/\b(case fans?|extra fans?|wifi (?:card|adapter|dongle)|wireless (?:card|adapter))\b/.test(text)) {
+      allowances.push(UNKNOWN_ALLOWANCES.accessories);
+    }
+
+    return allowances;
+  }
+
+  function conditionProfile(completeMid, allowances) {
+    const text = normalize(state.description);
+    let fairFactor = completeMid < 400 ? 0.97 : completeMid < 900 ? 0.95 : 0.91;
+    const notes = [];
+    let riskSpread = 0;
+
+    const gpu = state.matches
+      .filter((match) => match.category === "gpu")
+      .map((match) => normalize(byId.get(match.partId)?.name ?? ""))
+      .join(" ");
+    if (/\b(rtx 40|rtx 50|rx 7\d{3}|rx 9\d{3})/.test(gpu)) fairFactor += 0.01;
+    if (/\b(b450|x470|am4|z370|z390)\b/.test(text)) fairFactor -= 0.01;
+    fairFactor -= Math.min(0.025, allowances.length * 0.005);
+
+    if (/\b(warranty|guarantee)\b/.test(text)) {
+      fairFactor += 0.015;
+      notes.push("warranty mentioned");
+    }
+    if (/\b(clean|cleaned|tested|benchmarked|documented)\b/.test(text)) {
+      fairFactor += 0.015;
+      notes.push("condition evidence mentioned");
+    }
+    if (/\b(dust|dusty|dirty|scratched|damage)\b/.test(text)) {
+      fairFactor -= 0.035;
+      riskSpread += 12;
+      notes.push("cosmetic condition risk");
+    }
+    if (/\b(untested|no power|faulty|for parts|spares or repair)\b/.test(text)) {
+      fairFactor -= 0.12;
+      riskSpread += 30;
+      notes.push("functional uncertainty");
+    }
+    if (/\b(zero feedback|0 feedback|new seller)\b/.test(text)) {
+      fairFactor -= 0.025;
+      riskSpread += 10;
+      notes.push("seller-history risk");
+    }
+
+    return {
+      fairFactor: Math.max(0.72, Math.min(0.99, fairFactor)),
+      quickDiscount: 0.1 + Math.min(0.04, allowances.length * 0.008),
+      cleanPremium: 0.075,
+      riskSpread,
+      notes,
+    };
+  }
+
+  function comparableScore(sale) {
+    const selected = new Map(state.matches.map((match) => [match.category, byId.get(match.partId)]));
+    const cpu = normalize(selected.get("cpu")?.name ?? "");
+    const gpu = normalize(selected.get("gpu")?.name ?? "");
+    const ram = normalize(selected.get("ram")?.name ?? "");
+    const storage = normalize(selected.get("storage")?.name ?? "");
+    let score = 0;
+
+    if (cpu && sale.cpu && (cpu.includes(normalize(sale.cpu)) || normalize(sale.cpu).includes(cpu))) score += 0.35;
+    if (gpu && sale.gpu && (gpu.includes(normalize(sale.gpu)) || normalize(sale.gpu).includes(gpu))) score += 0.4;
+    if (sale.ramGb && ram.includes(`${sale.ramGb}gb`)) score += 0.12;
+    if (sale.storageGb && storage.includes(sale.storageGb >= 1000 ? `${sale.storageGb / 1000}tb` : `${sale.storageGb}gb`)) score += 0.08;
+    return score;
+  }
+
+  function systemComparables() {
+    const close = (marketSales.systems ?? [])
+      .map((sale) => ({ sale, score: comparableScore(sale) }))
+      .filter((item) => item.score >= 0.7);
+    const exact = close
+      .filter(({ sale }) => eligibleExactSale(sale))
+      .map(({ sale, score }) => ({
+        value: normalisedSellerPrice(sale),
+        weight: score * Math.exp((-Math.LN2 * saleAgeDays(sale)) / 45),
+      }));
+    const censored = close.filter(({ sale }) => sale.priceType === "upper-bound" || sale.bestOfferAccepted === true);
+    return { exact, censored };
+  }
+
+  function makeBand(mid, halfWidth) {
+    return {
+      low: Math.max(0, roundFive(mid - halfWidth)),
+      mid: roundFive(mid),
+      high: roundFive(mid + halfWidth),
+    };
+  }
+
+  function calculateValuation() {
+    const partDetails = state.matches
+      .map((match) => ({ match, part: byId.get(match.partId) }))
+      .filter(({ part }) => Boolean(part))
+      .map(({ match, part }) => ({ match, part, valuation: partValuation(part) }));
+    const componentMid = partDetails.reduce((sum, item) => sum + item.valuation.mid, 0);
+    const componentUncertainty = Math.sqrt(partDetails.reduce((sum, item) => (
+      sum + ((item.valuation.high - item.valuation.low) / 2) ** 2
+    ), 0));
+
+    const allowances = unknownAllowances();
+    const allowanceLow = allowances.reduce((sum, item) => sum + item.low, 0);
+    const allowanceHigh = allowances.reduce((sum, item) => sum + item.high, 0);
+    const allowanceMid = (allowanceLow + allowanceHigh) / 2;
+    const completeLow = Math.max(0, componentMid + allowanceLow - componentUncertainty * 0.35);
+    const completeHigh = componentMid + allowanceHigh + componentUncertainty * 0.35;
+    const completeMid = (completeLow + completeHigh) / 2;
+    const profile = conditionProfile(completeMid, allowances);
+    const baseHalfWidth = Math.max(
+      15,
+      componentUncertainty * 0.55 + allowances.length * 2.5 + profile.riskSpread,
+    );
+
+    let quick = makeBand(
+      completeMid * Math.max(0.65, profile.fairFactor - profile.quickDiscount),
+      baseHalfWidth * 0.9,
+    );
+    let fair = makeBand(completeMid * profile.fairFactor, baseHalfWidth);
+    let clean = makeBand(
+      completeMid * Math.min(1.02, profile.fairFactor + profile.cleanPremium),
+      baseHalfWidth * 0.75,
+    );
+
+    const comparables = systemComparables();
+    let method;
+    if (comparables.exact.length >= 2) {
+      const comparableWeight = comparables.exact.length >= 5 ? 0.75 : 0.55;
+      const partsWeight = 1 - comparableWeight;
+      const comparableBands = {
+        quick: weightedQuantile(comparables.exact, 0.25),
+        fair: weightedQuantile(comparables.exact, 0.5),
+        clean: weightedQuantile(comparables.exact, 0.75),
+      };
+      quick = makeBand(comparableBands.quick * comparableWeight + quick.mid * partsWeight, baseHalfWidth * 0.7);
+      fair = makeBand(comparableBands.fair * comparableWeight + fair.mid * partsWeight, baseHalfWidth * 0.7);
+      clean = makeBand(comparableBands.clean * comparableWeight + clean.mid * partsWeight, baseHalfWidth * 0.7);
+      method = `${comparables.exact.length} close, uncensored whole-PC sales blended with adjusted parts value.`;
+    } else {
+      const censoredCopy = comparables.censored.length
+        ? ` ${comparables.censored.length} close Best Offer/upper-bound comp was excluded from the median.`
+        : "";
+      method = `Fewer than 2 usable whole-PC comparables; dynamic bundle fallback used.${censoredCopy}`;
+    }
+
+    return {
+      partDetails,
+      componentMid,
+      componentUncertainty,
+      allowances,
+      allowanceLow,
+      allowanceHigh,
+      completeParts: { low: completeLow, mid: completeMid, high: completeHigh },
+      quick,
+      fair,
+      clean,
+      method,
+      conditionNotes: profile.notes,
+      exactComparableCount: comparables.exact.length,
+      censoredComparableCount: comparables.censored.length,
+    };
+  }
+
   function escapeHtml(value) {
     return String(value)
       .replace(/&/g, "&amp;")
@@ -341,11 +649,12 @@ PSU: Corsair 650W`;
   function renderPartRow(match) {
     const selected = byId.get(match.partId);
     const category = CATEGORY_META[match.category];
-    const confidence = matchConfidence(match);
+    const identification = identificationConfidence(match);
+    const valuation = partValuation(selected);
     const options = [...new Set([match.partId, ...match.alternatives])]
       .map((id) => byId.get(id))
       .filter(Boolean)
-      .map((part) => `<option value="${part.id}" ${part.id === selected.id ? "selected" : ""}>${escapeHtml(part.name)} — ${formatGBP(part.price)}</option>`)
+      .map((part) => `<option value="${part.id}" ${part.id === selected.id ? "selected" : ""}>${escapeHtml(part.name)} — ${formatRange(partValuation(part))}</option>`)
       .join("");
 
     return `
@@ -356,11 +665,12 @@ PSU: Corsair 650W`;
           <label class="sr-only" for="select-${match.uid}">Matched ${category.label}</label>
           <select id="select-${match.uid}" data-action="change-part">${options}</select>
           <div class="match-meta">
-            <span class="match-pill ${confidence.className}">${confidence.label} match</span>
+            <span class="match-pill ${identification.className}">Identification: ${identification.label}</span>
+            <span class="match-pill ${valuation.confidence}">Value: ${valuation.confidence[0].toUpperCase()}${valuation.confidence.slice(1)}</span>
             <span title="${escapeHtml(match.segment)}">from “${escapeHtml(match.segment.slice(0, 48))}${match.segment.length > 48 ? "…" : ""}”</span>
           </div>
         </div>
-        <strong class="part-price">${formatGBP(selected.price)}</strong>
+        <strong class="part-price">${formatRange(valuation)}</strong>
         <button class="remove-button" type="button" data-action="remove-part" aria-label="Remove ${escapeHtml(selected.name)}">×</button>
       </div>`;
   }
@@ -373,23 +683,40 @@ PSU: Corsair 650W`;
       </div>`;
   }
 
-  function buildWarnings() {
+  function buildWarnings(valuation) {
     const found = new Set(state.matches.map((match) => match.category));
+    const allowanceKeys = new Set(valuation.allowances.map((item) => item.key));
     const missing = Object.entries(CATEGORY_META)
-      .filter(([key, meta]) => meta.required && !found.has(key))
+      .filter(([key, meta]) => meta.required && !found.has(key) && !allowanceKeys.has(key))
       .map(([, meta]) => meta.label);
-    const lowMatches = state.matches.filter((match) => matchConfidence(match).className === "low");
+    const lowIdentification = state.matches.filter((match) => identificationConfidence(match).className === "low");
+    const lowValuation = valuation.partDetails.filter((item) => item.valuation.confidence === "low");
     const text = normalize(state.description);
     const warnings = [];
 
+    if (valuation.allowances.length) {
+      const allowanceCopy = valuation.allowances
+        .map((item) => `${item.label} ${formatRange(item)}`)
+        .join(", ");
+      warnings.push(warningMarkup(
+        "warning",
+        "Conservative essentials added",
+        `${allowanceCopy}. These add modest value but widen uncertainty.`,
+      ));
+    }
+
     if (missing.length) {
-      warnings.push(warningMarkup("warning", "Missing from description", `${missing.join(", ")} ${missing.length === 1 ? "was" : "were"} not priced.`));
-    } else {
+      warnings.push(warningMarkup("warning", "Still unpriced", `${missing.join(", ")} ${missing.length === 1 ? "has" : "have"} no safe automatic allowance.`));
+    } else if (!valuation.allowances.length) {
       warnings.push(warningMarkup("good", "Core specification covered", "Every essential pricing category was detected."));
     }
 
-    if (lowMatches.length) {
-      warnings.push(warningMarkup("warning", "Weak match to review", `${lowMatches.length} component ${lowMatches.length === 1 ? "uses" : "use"} a low-confidence estimate.`));
+    if (lowIdentification.length) {
+      warnings.push(warningMarkup("warning", "Weak identification to review", `${lowIdentification.length} component ${lowIdentification.length === 1 ? "has" : "have"} low identification confidence.`));
+    }
+
+    if (lowValuation.length) {
+      warnings.push(warningMarkup("warning", "Wide price uncertainty", `${lowValuation.length} identified component ${lowValuation.length === 1 ? "has" : "have"} low valuation confidence.`));
     }
 
     if (/rtx 5060 ti 16gb/.test(text) && !/\bti\b/.test(normalize(state.description))) {
@@ -397,11 +724,23 @@ PSU: Corsair 650W`;
     }
 
     if (/corsair/.test(text) && /\b(psu|power supply)\b/.test(text) && !/\b\d{3,4}w\b/.test(text)) {
-      warnings.push(warningMarkup("warning", "PSU wattage missing", "A low-confidence Corsair fallback value was used."));
+      warnings.push(warningMarkup("warning", "PSU wattage missing", "A modest value range is included, but the unknown model increases buyer risk."));
     }
 
     if (state.matches.some((match) => /interface unknown/.test(byId.get(match.partId)?.name ?? ""))) {
       warnings.push(warningMarkup("warning", "SSD interface missing", "NVMe and SATA drives have different values."));
+    }
+
+    for (const note of valuation.conditionNotes) {
+      warnings.push(warningMarkup("warning", "Sale-context adjustment", `${note[0].toUpperCase()}${note.slice(1)} affects the sale range, not the intrinsic hardware subtotal.`));
+    }
+
+    if (valuation.censoredComparableCount) {
+      warnings.push(warningMarkup(
+        "warning",
+        "Best Offer evidence treated cautiously",
+        `${valuation.censoredComparableCount} close whole-PC listing is stored as an upper bound and excluded from the median.`,
+      ));
     }
 
     if (!warnings.length) warnings.push(warningMarkup("good", "Ready to price", "No obvious identification problems were found."));
@@ -409,34 +748,45 @@ PSU: Corsair 650W`;
   }
 
   function render() {
-    const activeParts = state.matches.map((match) => byId.get(match.partId)).filter(Boolean);
-    const total = activeParts.reduce((sum, part) => sum + part.price, 0);
-    const confidenceValues = state.matches.map((match) => matchConfidence(match).value);
-    const averageConfidence = confidenceValues.length
-      ? confidenceValues.reduce((sum, value) => sum + value, 0) / confidenceValues.length
+    const valuation = calculateValuation();
+    const identificationValues = state.matches.map((match) => identificationConfidence(match).value);
+    const averageIdentification = identificationValues.length
+      ? identificationValues.reduce((sum, value) => sum + value, 0) / identificationValues.length
+      : 0;
+    const valuationRanks = { high: 3, medium: 2, low: 1 };
+    const averageValuation = valuation.partDetails.length
+      ? valuation.partDetails.reduce((sum, item) => sum + valuationRanks[item.valuation.confidence], 0) / valuation.partDetails.length
       : 0;
 
     elements.emptyState.hidden = true;
     elements.resultsContent.hidden = false;
     elements.partsList.innerHTML = state.matches.map(renderPartRow).join("");
-    elements.partsTotal.textContent = formatGBP(total);
-    elements.quickValue.textContent = formatGBP(roundFive(total * 0.85));
-    elements.fairValue.textContent = formatGBP(roundFive(total * 0.95));
-    elements.cleanValue.textContent = formatGBP(roundFive(total * 1.05));
+    elements.partsTotal.textContent = formatGBP(roundFive(valuation.componentMid));
+    elements.allowanceValue.textContent = valuation.allowances.length
+      ? formatRange({ low: valuation.allowanceLow, high: valuation.allowanceHigh })
+      : "£0";
+    elements.allowanceSummary.textContent = valuation.allowances.length
+      ? `${valuation.allowances.length} conservative ${valuation.allowances.length === 1 ? "allowance" : "allowances"}`
+      : "No automatic allowances";
+    elements.completePartsValue.textContent = formatRange(valuation.completeParts);
+    elements.quickValue.textContent = formatRange(valuation.quick);
+    elements.fairValue.textContent = formatRange(valuation.fair);
+    elements.cleanValue.textContent = formatRange(valuation.clean);
     elements.matchCount.textContent = `${state.matches.length} ${state.matches.length === 1 ? "part" : "parts"}`;
     elements.matchSummary.textContent = state.matches.length
-      ? `Found ${state.matches.length} priced ${state.matches.length === 1 ? "component" : "components"}. Check the dropdowns before using the total.`
+      ? `Found ${state.matches.length} priced ${state.matches.length === 1 ? "component" : "components"}${valuation.allowances.length ? ` plus ${valuation.allowances.length} essential ${valuation.allowances.length === 1 ? "allowance" : "allowances"}` : ""}.`
       : "No reliable component matches were found.";
-    elements.warningsList.innerHTML = buildWarnings();
+    elements.warningsList.innerHTML = buildWarnings(valuation);
+    elements.valuationMethod.textContent = `${valuation.method} Seller/item prices exclude Buyer Protection and delivery.`;
 
-    if (averageConfidence >= 0.84) {
-      elements.overallConfidence.textContent = "Strong match coverage";
+    if (averageIdentification >= 0.84 && averageValuation >= 2.6 && !valuation.allowances.length) {
+      elements.overallConfidence.textContent = "High confidence";
       elements.overallConfidenceDot.style.background = "#d9f878";
-    } else if (averageConfidence >= 0.66) {
-      elements.overallConfidence.textContent = "Review suggested";
+    } else if (averageIdentification >= 0.66 && averageValuation >= 1.8) {
+      elements.overallConfidence.textContent = "Medium confidence";
       elements.overallConfidenceDot.style.background = "#f0ad4e";
     } else {
-      elements.overallConfidence.textContent = "Low-confidence estimate";
+      elements.overallConfidence.textContent = "Low confidence";
       elements.overallConfidenceDot.style.background = "#e47b6b";
     }
   }
@@ -508,6 +858,15 @@ PSU: Corsair 650W`;
     }
     const best = rankCandidates(query, null, 1)[0];
     if (!best || best.score < 0.24) return;
+
+    const duplicate = best.part.category === "storage"
+      ? state.matches.find((match) => match.category === "storage" && isLikelyDuplicateStorage(match, best, query))
+      : state.matches.find((match) => match.category === best.part.category || match.partId === best.part.id);
+    if (duplicate) {
+      elements.manualSearch.value = "";
+      return;
+    }
+
     state.matches.push(makeMatch(best, query, best.part.category));
     elements.manualSearch.value = "";
     render();
@@ -520,9 +879,23 @@ PSU: Corsair 650W`;
   window.RigWorth = {
     analyseDescription,
     rankCandidates,
+    estimateDescription: (description) => {
+      const previousDescription = state.description;
+      const previousMatches = state.matches;
+      state.description = description;
+      state.matches = analyseDescription(description);
+      const estimate = {
+        matches: state.matches.map((match) => ({ ...match, part: byId.get(match.partId) })),
+        valuation: calculateValuation(),
+      };
+      state.description = previousDescription;
+      state.matches = previousMatches;
+      return estimate;
+    },
     getState: () => ({
       description: state.description,
       matches: state.matches.map((match) => ({ ...match, part: byId.get(match.partId) })),
+      valuation: calculateValuation(),
     }),
     parts,
   };

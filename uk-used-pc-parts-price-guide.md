@@ -4,7 +4,7 @@
 **Currency:** GBP (£)  
 **Purpose:** Look up individual parts, add their values together, and estimate the resale value of a complete working PC.
 
-Every price is a **single rounded estimate for a normal, working, used part**. It is not a new retail price or an advertised asking price.
+Each catalogue price is a **working midpoint for a normal used part**. The programme adds a valuation range based on the evidence quality, exact configuration, model certainty, condition and market volatility. These are not new-retail or advertised asking prices.
 
 ## How the prices were calculated
 
@@ -15,7 +15,7 @@ Every price is a **single rounded estimate for a normal, working, used part**. I
 5. Round to a practical valuation—usually the nearest £5.
 6. Where the exact model has thin sales, estimate from adjacent models, current performance, age, and the wider sold-price curve.
 
-The price is for the part itself and **excludes delivery**. “Best Offer accepted” results do not always reveal the final accepted amount, so estimates are intentionally rounded.
+The price is for the part itself and **excludes delivery and eBay Buyer Protection**. Seller/item price, Buyer Protection, delivery and buyer checkout total are stored separately where known. “Best Offer accepted” results are excluded from exact medians or retained only as upper bounds.
 
 ### Confidence
 
@@ -23,19 +23,19 @@ The price is for the part itself and **excludes delivery**. “Best Offer accept
 - **Medium** — sold evidence plus close comparable models.
 - **Low** — thin exact-model sales; use as a starting point and recheck.
 
-## Fast rules for valuing a whole PC
+## Whole-PC valuation method
 
-1. Add the CPU, GPU, motherboard, RAM, storage, PSU, case, and cooler.
-2. Do not add value for Windows unless a transferable retail licence is proven.
-3. For a complete PC sold together, use:
+1. Add the identified CPU, GPU, motherboard, RAM, storage, PSU, case and cooler midpoints.
+2. Add conservative ranges for a functional but unidentified case, PSU and CPU cooler when the description appears to be a complete desktop.
+3. Keep identification confidence separate from valuation confidence.
+4. Prefer recent, uncensored UK whole-PC comparables:
+   - five or more close matches: 75% comparable signal, 25% adjusted parts signal;
+   - two to four close matches: 55% comparable signal, 45% adjusted parts signal;
+   - fewer than two: a dynamic parts-based fallback informed by price tier, GPU desirability, platform age, completeness, warranty and condition.
+5. Use comparable 25th, 50th and 75th percentiles for quick, expected and clean sale bands.
+6. Do not add value for Windows unless a transferable retail licence is proven.
 
-| Sale goal | Multiply the parts total by |
-|---|---:|
-| Quick local sale | **0.85** |
-| Normal fair whole-PC price | **0.95** |
-| Clean, attractive, well-presented system | **1.05** |
-
-Then adjust for condition:
+Condition and seller context adjust the sale range separately from the intrinsic hardware value:
 
 | Condition | Adjustment |
 |---|---:|
@@ -103,7 +103,7 @@ These high-confidence reference points anchor the rest of the guide.
 | Ryzen 7 5700G | R7 5700G | **£90** | Medium |
 | Ryzen 7 5700X | R7 5700X | **£95** | Medium |
 | Ryzen 7 5700X3D | 5700 X3D | **£155** | Medium |
-| Ryzen 7 5800X | R7 5800X | **£100** | Medium |
+| Ryzen 7 5800X | R7 5800X | **£140** | Medium |
 | Ryzen 7 5800X3D | 5800 X3D | **£180** | Medium |
 | Ryzen 9 5900X | R9 5900X | **£130** | Medium |
 | Ryzen 9 5950X | R9 5950X | **£190** | Medium |
@@ -250,7 +250,7 @@ GPU prices assume an ordinary working desktop card. Premium white, ROG Strix, Su
 | GeForce RTX 3080 Ti | RTX3080Ti | **£380** | Medium |
 | GeForce RTX 3090 | RTX3090 24GB | **£500** | Medium |
 | GeForce RTX 3090 Ti | RTX3090Ti | **£580** | Medium |
-| GeForce RTX 4060 | RTX4060 8GB | **£250** | Medium |
+| GeForce RTX 4060 | RTX4060 8GB | **£230** | Medium |
 | GeForce RTX 4060 Ti 8GB | RTX4060Ti 8G | **£300** | Medium |
 | GeForce RTX 4060 Ti 16GB | RTX4060Ti 16G | **£350** | Medium |
 | GeForce RTX 4070 | RTX4070 | **£400** | Medium |

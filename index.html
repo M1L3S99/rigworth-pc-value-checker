@@ -75,7 +75,7 @@ PSU: Corsair 650W"></textarea>
 
           <div class="valuation-grid">
             <article class="value-card value-card--primary">
-              <p>Fair complete-PC value</p>
+              <p>Expected private sale</p>
               <div class="hero-price" id="fairValue">£0</div>
               <div class="confidence-line">
                 <span id="overallConfidenceDot" class="confidence-dot"></span>
@@ -83,19 +83,29 @@ PSU: Corsair 650W"></textarea>
               </div>
             </article>
             <article class="value-card">
-              <p>Parts total</p>
+              <p>Priced-component subtotal</p>
               <strong id="partsTotal">£0</strong>
-              <span>Individual sold values</span>
+              <span>Only components identified above</span>
             </article>
             <article class="value-card">
-              <p>Quick sale</p>
+              <p>Unpriced essentials</p>
+              <strong id="allowanceValue">£0</strong>
+              <span id="allowanceSummary">No automatic allowances</span>
+            </article>
+            <article class="value-card">
+              <p>Estimated complete parts value</p>
+              <strong id="completePartsValue">£0</strong>
+              <span>Includes conservative allowances</span>
+            </article>
+            <article class="value-card">
+              <p>Quick local sale</p>
               <strong id="quickValue">£0</strong>
-              <span>About 85% of parts</span>
+              <span>Lower quartile estimate</span>
             </article>
             <article class="value-card">
-              <p>Clean &amp; presented</p>
+              <p>Clean, tested &amp; documented</p>
               <strong id="cleanValue">£0</strong>
-              <span>Up to 105% of parts</span>
+              <span>Upper quartile estimate</span>
             </article>
           </div>
 
@@ -136,7 +146,7 @@ PSU: Corsair 650W"></textarea>
                 <span class="method-note__icon" aria-hidden="true">£</span>
                 <div>
                   <strong>Price method</strong>
-                  <p>Rounded estimates from UK sold/completed listings. Delivery is excluded.</p>
+                  <p id="valuationMethod">Recent UK seller/item prices, with Buyer Protection and delivery excluded.</p>
                 </div>
               </div>
             </aside>
@@ -152,7 +162,7 @@ PSU: Corsair 650W"></textarea>
         <ol class="method-steps">
           <li><span>1</span><div><strong>Extract</strong><p>Recognises model numbers, capacities and common abbreviations.</p></div></li>
           <li><span>2</span><div><strong>Match</strong><p>Ranks close catalogue results and labels vague descriptions.</p></div></li>
-          <li><span>3</span><div><strong>Value</strong><p>Adds individual sold values and applies whole-PC sale factors.</p></div></li>
+          <li><span>3</span><div><strong>Value</strong><p>Blends close whole-PC sales with a dynamic adjusted-parts fallback.</p></div></li>
         </ol>
       </section>
     </main>
@@ -164,6 +174,7 @@ PSU: Corsair 650W"></textarea>
   </div>
 
   <script src="parts-data.js"></script>
+  <script src="sales-data.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
