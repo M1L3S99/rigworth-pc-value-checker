@@ -292,6 +292,102 @@ assertRange(
   "Unknown compatible Intel 300-series motherboard",
 );
 
+const ebayFixture = fs.readFileSync("tests/fixtures/ebay-358840159028.txt", "utf8");
+const ebayEstimate = estimateDescription(ebayFixture);
+const ebayCpu = matchFor(ebayEstimate, "cpu");
+const ebayGpu = matchFor(ebayEstimate, "gpu");
+const ebayRam = matchFor(ebayEstimate, "ram");
+const ebayStorage = matchFor(ebayEstimate, "storage");
+const ebayPsu = matchFor(ebayEstimate, "psu");
+assert(ebayCpu?.part?.id === "cpu-intel-core-i7-10700f", `eBay fixture CPU matched ${ebayCpu?.part?.name ?? "nothing"}`);
+assertRange(
+  ebayEstimate.valuation.partDetails.find((item) => item.part.id === ebayCpu.part.id)?.valuation,
+  95,
+  115,
+  "Core i7-10700F",
+);
+assert(ebayCpu.familyIdentification === "high", "i7-10700F shorthand identification is not high");
+assert(ebayGpu?.part?.id === "gpu-geforce-gtx-1650", `eBay fixture GPU matched ${ebayGpu?.part?.name ?? "nothing"}`);
+assertRange(
+  ebayEstimate.valuation.partDetails.find((item) => item.part.id === ebayGpu.part.id)?.valuation,
+  50,
+  70,
+  "GeForce GTX 1650",
+);
+assert(
+  matchFor(estimateDescription("GPU: NVIDIA GeForce 1650"), "gpu")?.part?.id === "gpu-geforce-gtx-1650",
+  "Common eBay omission 'NVIDIA GeForce 1650' did not safely alias GTX 1650",
+);
+assert(ebayRam?.part?.id === "ram-ddr4-16-1x16-2400", `eBay fixture RAM matched ${ebayRam?.part?.name ?? "nothing"}`);
+assert(
+  ebayRam.entity.quantity === 1
+    && ebayRam.entity.unitCapacity === 16
+    && ebayRam.entity.totalCapacity === 16
+    && ebayRam.entity.speedMhz === 2400,
+  `eBay fixture RAM arithmetic/speed is wrong: ${JSON.stringify(ebayRam.entity)}`,
+);
+assertRange(
+  ebayEstimate.valuation.partDetails.find((item) => item.part.id === ebayRam.part.id)?.valuation,
+  30,
+  45,
+  "16GB DDR4-2400 1×16GB",
+);
+assert(
+  matchFor(estimateDescription("RAM: 1x16GB DDR4 2666MHz"), "ram")?.part?.id === "ram-ddr4-16-1x16-2666",
+  "DDR4-2666 was incorrectly snapped to the DDR4-2400 record",
+);
+assert(
+  ebayStorage?.part?.id === "storage-generic-1tb-sata-2.5",
+  `eBay fixture storage matched ${ebayStorage?.part?.name ?? "nothing"}`,
+);
+assert(
+  ebayStorage.entity.interface === "sata" && ebayStorage.entity.formFactor === "2.5-inch",
+  `eBay fixture storage metadata is wrong: ${JSON.stringify(ebayStorage.entity)}`,
+);
+assertRange(
+  ebayEstimate.valuation.partDetails.find((item) => item.part.id === ebayStorage.part.id)?.valuation,
+  55,
+  75,
+  "1TB 2.5-inch SATA SSD",
+);
+assert(!ebayEstimate.warningsHtml.includes("SSD interface missing"), "Explicit 2.5-inch SATA SSD still triggers an interface warning");
+assert(!ebayEstimate.warningsHtml.includes("PSU wattage missing"), "Exact Corsair CV450 metadata still triggers a wattage warning");
+assert(ebayPsu?.part?.id === "psu-corsair-cv450", `eBay fixture PSU matched ${ebayPsu?.part?.name ?? "nothing"}`);
+assertRange(
+  ebayEstimate.valuation.partDetails.find((item) => item.part.id === ebayPsu.part.id)?.valuation,
+  18,
+  27,
+  "Corsair CV450",
+);
+const ebayAllowances = new Map(ebayEstimate.valuation.allowances.map((item) => [item.key, item]));
+assertRange(ebayAllowances.get("motherboard"), 35, 55, "Unknown functional LGA1200 motherboard");
+assert(ebayAllowances.has("case") && ebayAllowances.has("cooler"), "Complete eBay PC is missing case/cooler allowances");
+assert(!ebayAllowances.has("windows"), "Windows 11 Home without activation/transfer evidence received value");
+assert(
+  ebayEstimate.matches.filter((match) => match.matched).length === 5 && ebayEstimate.valuation.allowances.length === 3,
+  `eBay fixture should contain five exact matches plus three inferred essentials: ${JSON.stringify({
+    matches: ebayEstimate.matches.map((match) => match.part?.name),
+    allowances: ebayEstimate.valuation.allowances.map((item) => item.label),
+  })}`,
+);
+assert(
+  ebayEstimate.valuation.exactComparableCount === 0
+    && ebayEstimate.valuation.percentiles.p50 < 481,
+  "The supplied active £481 asking price was incorrectly treated as a sold comparable",
+);
+for (const expansionId of [
+  "cpu-intel-core-i5-10500",
+  "cpu-intel-core-i7-11700f",
+  "motherboard-unknown-lga1700",
+  "motherboard-unknown-am5",
+  "ram-ddr4-16-2x8-2666",
+  "ram-ddr4-32-2x16-2400",
+  "psu-generic-450",
+  "psu-generic-1000",
+]) {
+  assert(records.some((record) => record.id === expansionId), `Catalogue expansion record is missing: ${expansionId}`);
+}
+
 const systemsLength = marketSales.systems.length;
 marketSales.systems.push(
   {
@@ -327,4 +423,9 @@ console.log(
   + `P50 £${fixtureEstimate.valuation.percentiles.p50}, `
   + `P75 £${fixtureEstimate.valuation.percentiles.p75}, `
   + `clean upper £${fixtureEstimate.valuation.clean.high}.`,
+);
+console.log(
+  `eBay 358840159028 fixture: P25 £${ebayEstimate.valuation.percentiles.p25}, `
+  + `P50 £${ebayEstimate.valuation.percentiles.p50}, `
+  + `P75 £${ebayEstimate.valuation.percentiles.p75}.`,
 );

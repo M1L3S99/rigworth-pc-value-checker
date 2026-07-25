@@ -589,6 +589,18 @@ separate from new-retail pricing and from Buyer Protection or delivery charges.
 | Unknown functional case | **£10–£25** | Inferred allowance only |
 | Unknown/basic CPU cooler | **£0–£8** | Inferred allowance only |
 | Unknown-brand 500W PSU | **£0–£10** | Low confidence; replacement-risk warning required |
+| Intel Core i7-10700F | **£95–£115** | Intel · Core i7 · 10700F · LGA1200 |
+| GeForce GTX 1650 4GB | **£50–£70** | NVIDIA · GeForce GTX · 1650; also accepts the common `GeForce 1650` omission |
+| 16GB DDR4-2400, 1×16GB | **£30–£45** | Exact module arithmetic and speed retained |
+| 1TB 2.5-inch SATA SSD, model unknown | **£55–£75** | SATA and 2.5-inch form factor explicitly identified |
+| Corsair CV450 | **£18–£27** | Exact identifiable 450W PSU |
+| Unknown functional LGA1200 motherboard | **£35–£55** | Inferred for complete 10th/11th-generation Intel PCs |
+
+The catalogue also includes stable generic allowances for legacy Intel,
+LGA1151, LGA1700, LGA1851 and AM5 motherboards; common 2400/2666MHz DDR4
+module layouts; and unidentified 450W, 550W, 750W, 850W and 1000W PSUs.
+These records increase coverage without pretending an unspecified exact model is
+known.
 - “Never overclocked” does not normally add value without test evidence.
 - A seller warranty adds value only if it is still valid and transferable.
 

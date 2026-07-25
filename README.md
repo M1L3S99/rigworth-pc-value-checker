@@ -5,7 +5,7 @@ RigWorth turns a pasted PC specification into matched components and an estimate
 ## Features
 
 - Extracts separate typed component entities before catalogue matching
-- Safely matches informal descriptions against 410 dated component price records
+- Safely matches informal descriptions against 438 dated component price records
 - Shows individual price ranges, inferred allowances, source phrases, and capacity arithmetic
 - Estimates P25/P50/P75 whole-PC values from sold comparables or a 12,000-sample fallback
 - Lets users correct uncertain matches with alternative dropdowns
