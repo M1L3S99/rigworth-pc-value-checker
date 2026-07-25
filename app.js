@@ -232,6 +232,43 @@ PSU: Corsair 650W`;
     };
   }
 
+  function storageIdentity(part, segment) {
+    const segmentText = normalize(segment);
+    const combinedText = normalize(`${segment} ${part?.name ?? ""}`);
+    const capacity = combinedText.match(/\b\d+(?:gb|tb)\b/)?.[0] ?? "";
+    const type = /\bhdd\b/.test(combinedText) && !/\b(ssd|nvme)\b/.test(combinedText)
+      ? "hdd"
+      : /\b(ssd|nvme)\b/.test(combinedText)
+        ? "ssd"
+        : /\b(blu-ray|dvd)\b/.test(combinedText)
+          ? "optical"
+          : "";
+    const models = usefulTokens(segmentText).filter((token) => {
+      if (/^\d+(?:gb|tb|mhz|w)$/.test(token)) return false;
+      return /[a-z]\d|\d[a-z]/.test(token) || /^\d{3,}$/.test(token);
+    });
+
+    return { capacity, type, models };
+  }
+
+  function isLikelyDuplicateStorage(existing, result, segment) {
+    if (existing.partId === result.part.id) return true;
+    if (normalize(existing.segment) === normalize(segment)) return true;
+
+    const existingPart = byId.get(existing.partId);
+    const left = storageIdentity(existingPart, existing.segment);
+    const right = storageIdentity(result.part, segment);
+    if (!left.capacity || left.capacity !== right.capacity || !left.type || left.type !== right.type) {
+      return false;
+    }
+
+    if (left.models.length && right.models.length) {
+      return left.models.some((model) => right.models.includes(model));
+    }
+
+    return true;
+  }
+
   function analyseDescription(description) {
     const matches = [];
     const segments = splitSegments(description);
@@ -244,8 +281,14 @@ PSU: Corsair 650W`;
         if (!best || best.score < 0.34) continue;
 
         if (category === "storage") {
-          const duplicate = matches.some((match) => match.partId === best.part.id && match.segment === segment);
-          if (!duplicate) matches.push(makeMatch(best, segment, category));
+          const duplicate = matches.find((match) => (
+            match.category === "storage" && isLikelyDuplicateStorage(match, best, segment)
+          ));
+          if (!duplicate) {
+            matches.push(makeMatch(best, segment, category));
+          } else if (best.score > duplicate.matchScore) {
+            Object.assign(duplicate, makeMatch(best, segment, category), { uid: duplicate.uid });
+          }
           continue;
         }
 
