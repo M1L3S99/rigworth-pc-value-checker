@@ -4,7 +4,7 @@
   const parts = Array.isArray(window.PC_PARTS) ? window.PC_PARTS : [];
   const marketSales = window.PC_MARKET_SALES ?? { referenceDate: "2026-07-25", components: [], systems: [] };
   const byId = new Map(parts.map((part) => [part.id, part]));
-  const state = { matches: [], description: "" };
+  const state = { matches: [], description: "", webLookupMatchUid: null };
   let uidCounter = 0;
 
   const elements = {
@@ -33,6 +33,15 @@
     valuationMethod: document.querySelector("#valuationMethod"),
     manualSearch: document.querySelector("#manualPartSearch"),
     addPartButton: document.querySelector("#addPartButton"),
+    webLookupPanel: document.querySelector("#webLookupPanel"),
+    webPartQuery: document.querySelector("#webPartQuery"),
+    webPartCategory: document.querySelector("#webPartCategory"),
+    googleLookupLink: document.querySelector("#googleLookupLink"),
+    ebayLookupLink: document.querySelector("#ebayLookupLink"),
+    webPriceLow: document.querySelector("#webPriceLow"),
+    webPriceHigh: document.querySelector("#webPriceHigh"),
+    addWebPriceButton: document.querySelector("#addWebPriceButton"),
+    webLookupStatus: document.querySelector("#webLookupStatus"),
   };
 
   const CATEGORY_META = {
@@ -44,6 +53,7 @@
     psu: { label: "Power supply", short: "PSU", required: true },
     case: { label: "Case", short: "CASE", required: true },
     cooler: { label: "Cooling", short: "COOL", required: true },
+    other: { label: "Web-priced part", short: "WEB", required: false },
   };
 
   const exampleText = `CPU: AMD Ryzen 5 3600
@@ -77,6 +87,17 @@ PSU: Corsair 650W`;
 
   function compact(value) {
     return normalize(value).replace(/[^a-z0-9]+/g, "");
+  }
+
+  function webSearchUrls(query) {
+    const cleaned = String(query ?? "").trim();
+    if (!cleaned) return { google: "", ebaySold: "" };
+    const googleQuery = encodeURIComponent(`${cleaned} used UK price`);
+    const ebayQuery = encodeURIComponent(cleaned);
+    return {
+      google: `https://www.google.co.uk/search?tbm=shop&q=${googleQuery}`,
+      ebaySold: `https://www.ebay.co.uk/sch/i.html?_nkw=${ebayQuery}&LH_Sold=1&LH_Complete=1&LH_ItemCondition=3000&rt=nc`,
+    };
   }
 
   function detectCategories(segment) {
@@ -609,6 +630,66 @@ PSU: Corsair 650W`;
     return entity.sourceText.replace(/^[^:]{2,20}:\s*/, "").trim();
   }
 
+  function webEntity(query, category) {
+    if (category !== "other") return makeEntity(category, query, 0, query.length);
+    return {
+      componentType: "other",
+      sourceText: query,
+      sourceStart: 0,
+      sourceEnd: query.length,
+      manufacturer: null,
+      productFamily: null,
+      modelNumber: null,
+      variant: null,
+      totalCapacity: null,
+      quantity: null,
+      unitCapacity: null,
+      storageMedium: null,
+      interface: null,
+      wattage: null,
+      speedMhz: null,
+      formFactor: null,
+      parsedArithmetic: null,
+    };
+  }
+
+  function validatedWebRange(lowValue, highValue) {
+    const low = Number(lowValue);
+    const high = Number(highValue);
+    if (!Number.isFinite(low) || !Number.isFinite(high)) {
+      return { error: "Enter both a low and high sold price." };
+    }
+    if (low < 0 || high < 0 || low > 10_000 || high > 10_000) {
+      return { error: "Use prices between £0 and £10,000." };
+    }
+    if (low > high) return { error: "The lowest price cannot be higher than the highest price." };
+    return { low, high };
+  }
+
+  function createWebPricedPart(query, category, lowValue, highValue) {
+    const cleanedQuery = String(query ?? "").trim();
+    const safeCategory = CATEGORY_META[category] ? category : "other";
+    const range = validatedWebRange(lowValue, highValue);
+    if (!cleanedQuery) return { error: "Enter the part name or model first." };
+    if (range.error) return range;
+
+    const part = {
+      id: `web-${safeCategory}-${compact(cleanedQuery)}`,
+      category: safeCategory,
+      name: `${cleanedQuery} — web-researched range`,
+      price: (range.low + range.high) / 2,
+      priceLow: range.low,
+      priceHigh: range.high,
+      confidence: "low",
+      valuationConfidence: "low",
+      evidenceNote: "User-confirmed web research range; not independently verified by RigWorth.",
+      isWebPriced: true,
+      webResearchQuery: cleanedQuery,
+    };
+    part._identity = parseProductIdentity(cleanedQuery, safeCategory, part);
+    return { part };
+  }
+
   function makeUnmatched(entity) {
     const id = `unmatched-${entity.componentType}-${compact(entity.sourceText)}-${entity.sourceStart}`;
     const part = {
@@ -648,6 +729,81 @@ PSU: Corsair 650W`;
       matched: false,
       alternatives: [],
     };
+  }
+
+  function sameWebResearchTarget(match, query, category) {
+    if (match.category !== category) return false;
+    const part = byId.get(match.partId);
+    const existingLabel = part?.webResearchQuery ?? extractedEntityLabel(match.entity);
+    return compact(existingLabel) === compact(query);
+  }
+
+  function applyWebPrice({ query, category, low, high, matchUid = null }, { shouldRender = true } = {}) {
+    const created = createWebPricedPart(query, category, low, high);
+    if (created.error) return { ok: false, message: created.error };
+    const { part } = created;
+    let target = matchUid ? state.matches.find((match) => match.uid === matchUid) : null;
+    target ??= state.matches.find((match) => sameWebResearchTarget(match, part.webResearchQuery, part.category));
+
+    if (!target && !["storage", "other"].includes(part.category)) {
+      const categoryDuplicate = state.matches.find((match) => match.category === part.category);
+      if (categoryDuplicate) {
+        return {
+          ok: false,
+          message: `${CATEGORY_META[part.category].label} is already present. Use “Web lookup” on that row instead of counting it twice.`,
+        };
+      }
+    }
+
+    byId.set(part.id, part);
+    if (target) {
+      const previousPart = byId.get(target.partId);
+      if (
+        target.partId !== part.id
+        && (previousPart?.isUnmatched || previousPart?.isWebPriced)
+      ) {
+        byId.delete(target.partId);
+      }
+      target.partId = part.id;
+      target.category = part.category;
+      target.matched = true;
+      target.matchScore = 0.45;
+      target.matchRank = null;
+      target.matchReason = "user-confirmed web research range";
+      target.familyIdentification = "low";
+      target.variantIdentification = "low";
+      target.variantAmbiguous = true;
+      target.entity = webEntity(part.webResearchQuery, part.category);
+      target.segment = part.webResearchQuery;
+      target.alternatives = [];
+      target.conflicts = [];
+      target.inferences = ["Web result prices were entered by the user and were not automatically verified."];
+    } else {
+      const entity = webEntity(part.webResearchQuery, part.category);
+      state.matches.push({
+        uid: `match-${++uidCounter}`,
+        partId: part.id,
+        category: part.category,
+        segment: part.webResearchQuery,
+        entity,
+        sourceStart: 0,
+        sourceEnd: part.webResearchQuery.length,
+        matchScore: 0.45,
+        matchRank: null,
+        matchReason: "user-confirmed web research range",
+        familyIdentification: "low",
+        variantIdentification: "low",
+        variantAmbiguous: true,
+        resolvedInterface: entity.interface,
+        inferences: ["Web result prices were entered by the user and were not automatically verified."],
+        conflicts: [],
+        matched: true,
+        alternatives: [],
+      });
+    }
+
+    if (shouldRender) render();
+    return { ok: true, message: `${part.webResearchQuery} added at ${formatRange(partValuation(part))}.`, part };
   }
 
   function storageEntitySignature(entity) {
@@ -1235,6 +1391,7 @@ PSU: Corsair 650W`;
             <span>${escapeHtml(match.matched ? `Matched by ${match.matchReason}` : "No safe catalogue match")}</span>
             ${match.inferences.map((inference) => `<span>${escapeHtml(inference)}</span>`).join("")}
             ${match.conflicts?.length ? `<span>Rejected conflicts: ${escapeHtml(match.conflicts.join(", "))}</span>` : ""}
+            ${!match.matched || selected.isWebPriced ? `<button class="text-button lookup-inline" type="button" data-action="research-part">${selected.isWebPriced ? "Edit web price" : "Web lookup"}</button>` : ""}
           </div>
         </div>
         <strong class="part-price">${formatRange(valuation)}</strong>
@@ -1259,6 +1416,7 @@ PSU: Corsair 650W`;
     const lowIdentification = state.matches.filter((match) => identificationConfidence(match).className === "low");
     const lowValuation = valuation.partDetails.filter((item) => item.valuation.confidence === "low");
     const unmatched = state.matches.filter((match) => !match.matched);
+    const webPriced = valuation.partDetails.filter((item) => item.part.isWebPriced);
     const text = normalize(state.description);
     const warnings = [];
 
@@ -1293,6 +1451,14 @@ PSU: Corsair 650W`;
 
     if (lowValuation.length) {
       warnings.push(warningMarkup("warning", "Wide price uncertainty", `${lowValuation.length} identified ${lowValuation.length === 1 ? "component has" : "components have"} low valuation confidence.`));
+    }
+
+    if (webPriced.length) {
+      warnings.push(warningMarkup(
+        "warning",
+        "User-entered web pricing",
+        `${webPriced.length} ${webPriced.length === 1 ? "component uses a" : "components use"} manually researched range. Check multiple used sold listings; active or new prices can overstate private-sale value.`,
+      ));
     }
 
     if (/rtx 5060 ti 16gb/.test(text) && !/\bti\b/.test(normalize(state.description))) {
@@ -1368,8 +1534,10 @@ PSU: Corsair 650W`;
     elements.cleanValue.textContent = formatRange(valuation.clean);
     elements.percentileSummary.textContent = `P25 ${formatGBP(valuation.percentiles.p25)} · P50 ${formatGBP(valuation.percentiles.p50)} · P75 ${formatGBP(valuation.percentiles.p75)}`;
     elements.matchCount.textContent = `${state.matches.length} ${state.matches.length === 1 ? "part" : "parts"}`;
+    const pricedCount = state.matches.filter((match) => match.matched).length;
+    const unmatchedCount = state.matches.length - pricedCount;
     elements.matchSummary.textContent = state.matches.length
-      ? `Found ${state.matches.length} priced ${state.matches.length === 1 ? "component" : "components"}${valuation.allowances.length ? ` plus ${valuation.allowances.length} essential ${valuation.allowances.length === 1 ? "allowance" : "allowances"}` : ""}.`
+      ? `Found ${pricedCount} priced ${pricedCount === 1 ? "component" : "components"}${unmatchedCount ? ` and ${unmatchedCount} awaiting web research` : ""}${valuation.allowances.length ? ` plus ${valuation.allowances.length} essential ${valuation.allowances.length === 1 ? "allowance" : "allowances"}` : ""}.`
       : "No reliable component matches were found.";
     elements.warningsList.innerHTML = buildWarnings(valuation);
     elements.valuationMethod.textContent = `${valuation.method} This is the seller/item price before any seller fees; the buyer's all-in total, Buyer Protection and delivery are excluded.`;
@@ -1386,6 +1554,61 @@ PSU: Corsair 650W`;
     }
   }
 
+  function setWebLookupStatus(message, isError = false) {
+    elements.webLookupStatus.textContent = message;
+    elements.webLookupStatus.className = `web-lookup__status${isError ? " is-error" : ""}`;
+  }
+
+  function syncWebLookupLinks() {
+    const urls = webSearchUrls(elements.webPartQuery.value);
+    for (const [element, href] of [
+      [elements.googleLookupLink, urls.google],
+      [elements.ebayLookupLink, urls.ebaySold],
+    ]) {
+      if (href) {
+        element.href = href;
+        element.setAttribute("aria-disabled", "false");
+      } else {
+        element.removeAttribute("href");
+        element.setAttribute("aria-disabled", "true");
+      }
+    }
+  }
+
+  function populateWebLookup(match) {
+    const part = byId.get(match.partId);
+    state.webLookupMatchUid = match.uid;
+    elements.webPartQuery.value = part?.webResearchQuery ?? extractedEntityLabel(match.entity);
+    elements.webPartCategory.value = match.category;
+    elements.webPriceLow.value = part?.isWebPriced ? part.priceLow : "";
+    elements.webPriceHigh.value = part?.isWebPriced ? part.priceHigh : "";
+    setWebLookupStatus(
+      part?.isWebPriced
+        ? "Edit the observed range, or open the searches again to refresh it."
+        : "Search this exact model, compare several used sold results, then enter the realistic range.",
+    );
+    syncWebLookupLinks();
+    elements.webLookupPanel.scrollIntoView({ behavior: "smooth", block: "center" });
+    elements.webPartQuery.focus();
+  }
+
+  function applyWebLookupFromForm() {
+    const result = applyWebPrice({
+      query: elements.webPartQuery.value,
+      category: elements.webPartCategory.value,
+      low: elements.webPriceLow.value,
+      high: elements.webPriceHigh.value,
+      matchUid: state.webLookupMatchUid,
+    });
+    if (!result.ok) {
+      setWebLookupStatus(result.message, true);
+      return;
+    }
+    const appliedMatch = state.matches.find((match) => match.partId === result.part.id);
+    state.webLookupMatchUid = appliedMatch?.uid ?? null;
+    setWebLookupStatus(`${result.message} It is included in the total with low confidence.`);
+  }
+
   function runValuation({ scroll = true } = {}) {
     const description = elements.description.value.trim();
     if (!description) {
@@ -1397,6 +1620,7 @@ PSU: Corsair 650W`;
     elements.description.removeAttribute("aria-invalid");
     state.description = description;
     state.matches = analyseDescription(description);
+    state.webLookupMatchUid = null;
     render();
     if (scroll) elements.resultsSection.scrollIntoView({ behavior: "smooth", block: "start" });
   }
@@ -1404,10 +1628,17 @@ PSU: Corsair 650W`;
   function clearAll() {
     state.description = "";
     state.matches = [];
+    state.webLookupMatchUid = null;
     elements.description.value = "";
     elements.resultsContent.hidden = true;
     elements.emptyState.hidden = false;
     elements.manualSearch.value = "";
+    elements.webPartQuery.value = "";
+    elements.webPartCategory.value = "other";
+    elements.webPriceLow.value = "";
+    elements.webPriceHigh.value = "";
+    setWebLookupStatus("");
+    syncWebLookupLinks();
     elements.description.focus();
   }
 
@@ -1443,9 +1674,18 @@ PSU: Corsair 650W`;
   });
 
   elements.partsList.addEventListener("click", (event) => {
+    const researchButton = event.target.closest("[data-action='research-part']");
+    if (researchButton) {
+      const researchRow = researchButton.closest("[data-match-id]");
+      const researchMatch = state.matches.find((item) => item.uid === researchRow?.dataset.matchId);
+      if (researchMatch) populateWebLookup(researchMatch);
+      return;
+    }
+
     const button = event.target.closest("[data-action='remove-part']");
     if (!button) return;
     const row = button.closest("[data-match-id]");
+    if (state.webLookupMatchUid === row?.dataset.matchId) state.webLookupMatchUid = null;
     state.matches = state.matches.filter((item) => item.uid !== row?.dataset.matchId);
     render();
   });
@@ -1479,11 +1719,63 @@ PSU: Corsair 650W`;
     if (event.key === "Enter") elements.addPartButton.click();
   });
 
+  elements.webPartQuery.addEventListener("input", () => {
+    if (state.webLookupMatchUid) {
+      const linkedMatch = state.matches.find((match) => match.uid === state.webLookupMatchUid);
+      const linkedPart = byId.get(linkedMatch?.partId);
+      if (
+        linkedPart?.isWebPriced
+        && compact(elements.webPartQuery.value) !== compact(linkedPart.webResearchQuery ?? extractedEntityLabel(linkedMatch.entity))
+      ) {
+        state.webLookupMatchUid = null;
+      }
+    }
+    setWebLookupStatus("");
+    syncWebLookupLinks();
+  });
+  elements.webPartCategory.addEventListener("change", () => {
+    setWebLookupStatus("");
+    syncWebLookupLinks();
+  });
+  elements.addWebPriceButton.addEventListener("click", applyWebLookupFromForm);
+  elements.webPriceHigh.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") applyWebLookupFromForm();
+  });
+  syncWebLookupLinks();
+
   window.RigWorth = {
     analyseDescription,
     extractComponentEntities,
     parseProductIdentity,
     rankCandidates,
+    webSearchUrls,
+    createWebPricedPart,
+    estimateWithWebPrices: (description, webPrices) => {
+      const previousDescription = state.description;
+      const previousMatches = state.matches;
+      const previousLookupMatchUid = state.webLookupMatchUid;
+      state.description = description;
+      state.matches = analyseDescription(description);
+      state.webLookupMatchUid = null;
+      const results = [];
+      for (const entry of webPrices ?? []) {
+        const target = entry.matchCategory
+          ? state.matches.find((match) => match.category === entry.matchCategory && !match.matched)
+          : null;
+        results.push(applyWebPrice({ ...entry, matchUid: target?.uid ?? entry.matchUid }, { shouldRender: false }));
+      }
+      const valuation = calculateValuation();
+      const estimate = {
+        matches: state.matches.map((match) => ({ ...match, part: byId.get(match.partId) })),
+        valuation,
+        results,
+        warningsHtml: buildWarnings(valuation),
+      };
+      state.description = previousDescription;
+      state.matches = previousMatches;
+      state.webLookupMatchUid = previousLookupMatchUid;
+      return estimate;
+    },
     estimateDescription: (description) => {
       const previousDescription = state.description;
       const previousMatches = state.matches;
