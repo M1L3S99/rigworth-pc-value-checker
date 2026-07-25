@@ -68,7 +68,16 @@ const analyseDescription = context.window.RigWorth?.analyseDescription;
 if (typeof analyseDescription !== "function") throw new Error("Matcher test hook is unavailable");
 const estimateDescription = context.window.RigWorth?.estimateDescription;
 const extractComponentEntities = context.window.RigWorth?.extractComponentEntities;
-if (typeof estimateDescription !== "function" || typeof extractComponentEntities !== "function") {
+const webSearchUrls = context.window.RigWorth?.webSearchUrls;
+const createWebPricedPart = context.window.RigWorth?.createWebPricedPart;
+const estimateWithWebPrices = context.window.RigWorth?.estimateWithWebPrices;
+if (
+  typeof estimateDescription !== "function"
+  || typeof extractComponentEntities !== "function"
+  || typeof webSearchUrls !== "function"
+  || typeof createWebPricedPart !== "function"
+  || typeof estimateWithWebPrices !== "function"
+) {
   throw new Error("Entity/valuation test hooks are unavailable");
 }
 
@@ -97,6 +106,52 @@ const distinctStorage = analyseDescription("Storage: 1TB SSD\nHard drive: 1TB HD
 assert(
   distinctStorage.filter((match) => match.category === "storage").length === 2,
   "Distinct SSD and HDD devices were incorrectly collapsed",
+);
+
+const fallbackUrls = webSearchUrls("ASUS PCE-AX3000 WiFi card");
+assert(
+  fallbackUrls.google.startsWith("https://www.google.co.uk/search?tbm=shop&q=")
+  && fallbackUrls.google.includes("ASUS%20PCE-AX3000%20WiFi%20card%20used%20UK%20price"),
+  `Google Shopping fallback URL is invalid: ${fallbackUrls.google}`,
+);
+assert(
+  fallbackUrls.ebaySold.startsWith("https://www.ebay.co.uk/sch/i.html?")
+  && fallbackUrls.ebaySold.includes("LH_Sold=1")
+  && fallbackUrls.ebaySold.includes("LH_Complete=1")
+  && fallbackUrls.ebaySold.includes("LH_ItemCondition=3000"),
+  `eBay sold fallback URL is missing required filters: ${fallbackUrls.ebaySold}`,
+);
+assert(createWebPricedPart("", "other", 10, 20).error, "Blank web-research part was accepted");
+assert(createWebPricedPart("Mystery GPU", "gpu", 120, 80).error, "Reversed web price range was accepted");
+
+const webFallbackEstimate = estimateWithWebPrices(
+  "GPU: NVIDIA GeForce RTX 9999",
+  [
+    { query: "NVIDIA GeForce RTX 9999", category: "gpu", low: 80, high: 120, matchCategory: "gpu" },
+    { query: "NVIDIA GeForce RTX 9999", category: "gpu", low: 85, high: 115, matchCategory: "gpu" },
+  ],
+);
+const webFallbackParts = webFallbackEstimate.matches.filter((match) => match.part?.isWebPriced);
+assert(webFallbackEstimate.results.every((result) => result.ok), "Web fallback could not price the unmatched GPU");
+assert(webFallbackParts.length === 1, "Repeated web pricing counted the same unmatched GPU twice");
+assertRange(
+  webFallbackEstimate.valuation.partDetails.find((item) => item.part.isWebPriced)?.valuation,
+  85,
+  115,
+  "User-confirmed web GPU",
+);
+assert(
+  webFallbackEstimate.warningsHtml.includes("User-entered web pricing"),
+  "Web-priced component is not disclosed in valuation warnings",
+);
+
+const otherWebPartEstimate = estimateWithWebPrices(
+  "Working desktop PC",
+  [{ query: "ASUS PCE-AX3000 WiFi card", category: "other", low: 12, high: 20 }],
+);
+assert(
+  otherWebPartEstimate.matches.some((match) => match.category === "other" && match.part?.isWebPriced),
+  "An out-of-catalogue PC accessory could not be added through web research",
 );
 
 for (const [description, expected] of [

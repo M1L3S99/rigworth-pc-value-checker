@@ -9,6 +9,7 @@ RigWorth turns a pasted PC specification into matched components and an estimate
 - Shows individual price ranges, inferred allowances, source phrases, and capacity arithmetic
 - Estimates P25/P50/P75 whole-PC values from sold comparables or a 12,000-sample fallback
 - Lets users correct uncertain matches with alternative dropdowns
+- Offers Google Shopping and eBay sold-search fallbacks for unknown parts, with user-confirmed ranges included at low confidence
 - Flags missing, ambiguous, conflicting, and unknown-risk components
 
 Prices are rough UK used-market references based on sold/completed listing research. They are estimates rather than guaranteed sale prices.

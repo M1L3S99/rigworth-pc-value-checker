@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Paste a PC description and estimate its UK used value from sold-parts data.">
   <title>RigWorth — PC Value Checker</title>
-  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="styles.css?v=20260725-2">
 </head>
 <body>
   <div class="page-shell">
@@ -133,6 +133,57 @@ PSU: Corsair 650W"></textarea>
                 </div>
                 <div class="manual-suggestions" id="manualSuggestions" hidden></div>
               </div>
+
+              <div class="web-lookup" id="webLookupPanel">
+                <div class="web-lookup__heading">
+                  <div>
+                    <span class="web-lookup__eyebrow">OPTIONAL WEB FALLBACK</span>
+                    <h4>Still unknown? Research its current price</h4>
+                    <p>Open targeted searches, check several comparable used items, then add the range you found.</p>
+                  </div>
+                  <span class="match-pill low">Low confidence</span>
+                </div>
+
+                <div class="web-lookup__fields">
+                  <label class="web-field web-field--part">
+                    <span>Part name or model</span>
+                    <input id="webPartQuery" type="search" placeholder="e.g. ASUS PCE-AX3000">
+                  </label>
+                  <label class="web-field">
+                    <span>Category</span>
+                    <select id="webPartCategory">
+                      <option value="cpu">Processor</option>
+                      <option value="gpu">Graphics</option>
+                      <option value="motherboard">Motherboard</option>
+                      <option value="ram">Memory</option>
+                      <option value="storage">Storage</option>
+                      <option value="psu">Power supply</option>
+                      <option value="case">Case</option>
+                      <option value="cooler">Cooling</option>
+                      <option value="other" selected>Other PC part</option>
+                    </select>
+                  </label>
+                </div>
+
+                <div class="web-lookup__searches">
+                  <a id="googleLookupLink" class="secondary-button compact" target="_blank" rel="noopener noreferrer" aria-disabled="true">Search Google Shopping</a>
+                  <a id="ebayLookupLink" class="secondary-button compact" target="_blank" rel="noopener noreferrer" aria-disabled="true">Search eBay sold</a>
+                  <span>Prefer used, sold/completed UK results. Exclude delivery, Buyer Protection, bundles and faulty items.</span>
+                </div>
+
+                <div class="web-lookup__price">
+                  <label class="web-field">
+                    <span>Lowest realistic sold price</span>
+                    <span class="currency-input"><b>£</b><input id="webPriceLow" type="number" min="0" max="10000" step="1" inputmode="decimal" placeholder="Low"></span>
+                  </label>
+                  <label class="web-field">
+                    <span>Highest realistic sold price</span>
+                    <span class="currency-input"><b>£</b><input id="webPriceHigh" type="number" min="0" max="10000" step="1" inputmode="decimal" placeholder="High"></span>
+                  </label>
+                  <button id="addWebPriceButton" class="primary-button compact" type="button">Use this web range</button>
+                </div>
+                <p class="web-lookup__status" id="webLookupStatus" role="status" aria-live="polite"></p>
+              </div>
             </div>
 
             <aside class="insight-panel">
@@ -176,6 +227,6 @@ PSU: Corsair 650W"></textarea>
 
   <script src="parts-data.js?v=20260725-4"></script>
   <script src="sales-data.js?v=20260725-3"></script>
-  <script src="app.js?v=20260725-6"></script>
+  <script src="app.js?v=20260725-7"></script>
 </body>
 </html>
