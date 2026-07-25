@@ -24,6 +24,7 @@
     quickValue: document.querySelector("#quickValue"),
     fairValue: document.querySelector("#fairValue"),
     cleanValue: document.querySelector("#cleanValue"),
+    percentileSummary: document.querySelector("#percentileSummary"),
     matchCount: document.querySelector("#matchCount"),
     matchSummary: document.querySelector("#matchSummary"),
     overallConfidence: document.querySelector("#overallConfidence"),
@@ -44,13 +45,6 @@
     case: { label: "Case", short: "CASE", required: true },
     cooler: { label: "Cooling", short: "COOL", required: true },
   };
-
-  const STOP_TOKENS = new Set([
-    "amd", "intel", "nvidia", "geforce", "radeon", "core", "processor",
-    "graphics", "card", "desktop", "exact", "basic", "generic", "ordinary",
-    "working", "model", "unknown", "configuration", "the", "and", "with",
-    "for", "gaming", "used", "part", "power", "supply",
-  ]);
 
   const exampleText = `CPU: AMD Ryzen 5 3600
 GPU: NVIDIA GeForce RTX 2070 (8GB)
@@ -85,41 +79,6 @@ PSU: Corsair 650W`;
     return normalize(value).replace(/[^a-z0-9]+/g, "");
   }
 
-  function tokenise(value) {
-    return normalize(value).split(" ").filter(Boolean);
-  }
-
-  function usefulTokens(value) {
-    return tokenise(value).filter((token) => !STOP_TOKENS.has(token));
-  }
-
-  function aliasesFor(part) {
-    const candidates = new Set([part.name, part.alias].filter(Boolean));
-    const name = normalize(part.name);
-
-    candidates.add(name.replace(/\b(?:amd|intel|nvidia|geforce|radeon)\b/g, " "));
-    candidates.add(name.replace(/\bcore\s+(i[3579])\b/g, "$1"));
-    candidates.add(name.replace(/\bryzen\s+([3579])\b/g, "r$1"));
-    candidates.add(name.replace(/\bgeforce\s+(rtx|gtx|gt)\b/g, "$1"));
-
-    const model = name.match(/\b(?:rtx|gtx|gt|rx|arc|i[3579]|r[3579])?\s*\d{3,5}(?:x3d|xt|ti|super|k|kf|f|g|x|s)?\b/);
-    if (model) candidates.add(model[0]);
-
-    if (/rtx 3060 12gb/.test(name)) candidates.add("rtx3060");
-    if (/configuration unknown/.test(name)) {
-      candidates.add(name.replace(/\(.*?\)/g, ""));
-    }
-
-    return [...candidates]
-      .flatMap((candidate) => [normalize(candidate), compact(candidate)])
-      .filter((candidate) => candidate.length >= 4);
-  }
-
-  for (const part of parts) {
-    part._aliases = aliasesFor(part);
-    part._tokens = usefulTokens(`${part.name} ${part.alias}`);
-  }
-
   function detectCategories(segment) {
     const text = normalize(segment);
     const categories = [];
@@ -129,207 +88,573 @@ PSU: Corsair 650W`;
 
     push("cpu", /\b(cpu|processor|ryzen|threadripper|fx\d|a\d-\d|core i[3579]|i[3579][ -]?\d{4,5}(?:k|kf|f|s|t)?)\b/.test(text));
     push("gpu", /\b(gpu|graphics|video card|geforce|rtx(?:\s?\d{4})?|gtx(?:\s?\d{3,4})?|radeon|rx ?\d{3,4}|arc [ab]\d{3})\b/.test(text));
-    push("motherboard", /\b(motherboard|mobo|mainboard|a320|b350|b450|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z77|z87|z97|z170|z270|z370|z390|z490|z590|z690|z790|z890|h61|h81|h110)\b/.test(text));
+    push("motherboard", /\b(motherboard|mobo|mainboard|a320|b350|b450|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z77|z87|z97|z170|z270|z370|z390|z490|z590|z690|z790|z890|h61|h81|h110|h310|b360|b365|h370)\b/.test(text));
     push("ram", /\b(ram|memory|ddr[345]|dimm|sodimm)\b/.test(text));
-    push("storage", /\b(storage|ssd|hdd|nvme|m2|hard drive|hard disk|barracuda|ironwolf|sn\d{3}|evo|mx500)\b/.test(text));
+    push("storage", /\b(storage|ssd|hdd|nvme|m2|hard drive|hard disk|barracuda|ironwolf|sn\d{3,4}|evo|mx500)\b/.test(text));
     push("psu", /\b(psu|power supply|corsair (?:cv|cx|rm|sf)|seasonic focus|evga supernova|pure power|system power|mwe|a650bn|a750gl)\b/.test(text));
     push("case", /\b(case|chassis|4000d|5000d|meshify|fractal north|o11|nr200|h510|h5 flow|air 903)\b/.test(text));
     push("cooler", /\b(cooler|heatsink|aio|hyper 212|nh-d15|nh-u12|peerless assassin|phantom spirit|liquid freezer|h100i|kraken)\b/.test(text));
     return categories;
   }
 
-  function scoreCandidate(part, source, expectedCategory = null) {
-    const text = normalize(source);
-    const textCompact = compact(source);
-    const partText = normalize(part.name);
-    const inputTokens = new Set(usefulTokens(source));
-    let score = 0;
+  const NUMBER_WORDS = new Map([
+    ["one", 1], ["two", 2], ["three", 3], ["four", 4],
+    ["five", 5], ["six", 6], ["seven", 7], ["eight", 8],
+  ]);
 
-    for (const alias of part._aliases) {
-      if (!alias) continue;
-      const isCompactAlias = !alias.includes(" ");
-      const haystack = isCompactAlias ? textCompact : text;
-      if (haystack.includes(alias)) {
-        score = Math.max(score, 0.82 + Math.min(0.15, alias.length / 90));
-      }
-    }
-
-    let matchedWeight = 0;
-    let totalWeight = 0;
-    for (const token of part._tokens) {
-      const numeric = /\d/.test(token);
-      const weight = numeric ? 3 : 1;
-      totalWeight += weight;
-      if (inputTokens.has(token) || textCompact.includes(token.replace(/[^a-z0-9]/g, ""))) {
-        matchedWeight += weight;
-      }
-    }
-
-    if (totalWeight) score = Math.max(score, (matchedWeight / totalWeight) * 0.83);
-    if (expectedCategory === part.category) score += 0.06;
-
-    const modelTokens = part._tokens.filter((token) => /\d{3,}/.test(token));
-    if (modelTokens.some((token) => textCompact.includes(token.replace(/[^a-z0-9]/g, "")))) {
-      score += 0.11;
-    }
-
-    const inputCapacities = [...text.matchAll(/\b(\d+)(gb|tb)\b/g)].map((match) => match[0]);
-    const partCapacities = [...normalize(part.name).matchAll(/\b(\d+)(gb|tb)\b/g)].map((match) => match[0]);
-    if (inputCapacities.length && partCapacities.length) {
-      if (partCapacities.some((capacity) => inputCapacities.includes(capacity))) score += 0.06;
-      else score -= 0.18;
-    }
-
-    if (/configuration unknown|interface unknown/.test(normalize(part.name))) {
-      const hasSpecificConfiguration = /\b(2x|4x|sata|nvme|m2|pcie)\b/.test(text);
-      score += hasSpecificConfiguration ? -0.08 : 0.08;
-    }
-
-    const inputSpecifiesNvme = /\b(nvme|gen[345])\b/.test(text);
-    const inputSpecifiesSata = /\bsata\b/.test(text);
-    const inputSpecifiesSsd = /\b(ssd|nvme)\b/.test(text);
-    const inputSpecifiesHdd = /\bhdd\b/.test(text) && !inputSpecifiesSsd;
-    const partIsNvme = /\b(nvme|m2)\b/.test(partText);
-    const partIsSata = /\bsata\b/.test(partText);
-    const partIsSsd = /\b(ssd|nvme)\b/.test(partText);
-    const partIsHdd = /\bhdd\b/.test(partText);
-    if (inputSpecifiesSsd) {
-      if (partIsSsd) score += 0.12;
-      if (partIsHdd) score -= 0.25;
-    } else if (inputSpecifiesHdd) {
-      if (partIsHdd) score += 0.18;
-      if (partIsSsd) score -= 0.3;
-    }
-    if (inputSpecifiesNvme) {
-      if (partIsNvme) score += 0.24;
-      else if (partIsSsd) score -= 0.34;
-    }
-    if (inputSpecifiesSata) {
-      if (partIsSata) score += 0.2;
-      else if (partIsSsd) score -= 0.24;
-    }
-
-    for (const modifier of ["ti", "super"]) {
-      const inputHasModifier = new RegExp(`\\b${modifier}\\b`).test(text);
-      const partHasModifier = new RegExp(`\\b${modifier}\\b`).test(partText);
-      if (partHasModifier && !inputHasModifier) score -= 0.28;
-      if (inputHasModifier && !partHasModifier) score -= 0.22;
-    }
-
-    if (/\b2x\d+gb\b/.test(partText) && !/\b2x\d+gb\b/.test(text)) score -= 0.06;
-    if (/rtx 3060 12gb/.test(partText) && /\brtx ?3060\b/.test(text) && !/\b[68]gb\b/.test(text)) score += 0.05;
-
-    return Math.max(0, Math.min(0.99, score));
+  function numberValue(value) {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : NUMBER_WORDS.get(String(value).toLowerCase()) ?? null;
   }
 
-  function rankCandidates(source, category = null, limit = 6) {
-    return parts
-      .filter((part) => !category || part.category === category)
-      .map((part) => ({ part, score: scoreCandidate(part, source, category) }))
-      .sort((a, b) => b.score - a.score || b.part.name.length - a.part.name.length)
-      .slice(0, limit);
+  function capacityToGb(amount, unit) {
+    const numeric = Number(amount);
+    if (!Number.isFinite(numeric)) return null;
+    return /^t/i.test(unit) ? numeric * 1000 : numeric;
   }
 
-  function splitSegments(description) {
-    const base = description
-      .replace(/\r/g, "")
-      .split(/\n|[;|•]+/)
-      .map((segment) => segment.trim())
-      .filter(Boolean);
-
-    return base.length ? base : [description.trim()].filter(Boolean);
+  function displayCapacity(capacityGb) {
+    return capacityGb >= 1000 && capacityGb % 1000 === 0
+      ? `${capacityGb / 1000}TB`
+      : `${capacityGb}GB`;
   }
 
-  function makeMatch(result, segment, category) {
-    return {
-      uid: `match-${++uidCounter}`,
-      partId: result.part.id,
+  function manufacturerFor(text, category) {
+    const value = normalize(text);
+    if (category === "cpu") {
+      if (/\b(amd|ryzen|threadripper)\b/.test(value)) return "amd";
+      if (/\b(intel|core i[3579]|core ultra|i[3579][ -]?\d{4,5})\b/.test(value)) return "intel";
+    }
+    if (category === "gpu") {
+      if (/\b(nvidia|geforce|rtx|gtx)\b/.test(value)) return "nvidia";
+      if (/\b(amd|radeon|rx ?\d{3,4})\b/.test(value)) return "amd";
+      if (/\b(intel|arc [ab]\d{3})\b/.test(value)) return "intel";
+    }
+    if (category === "storage") {
+      if (/\b(wd|western digital)\b/.test(value)) return "western digital";
+      if (/\bsamsung\b/.test(value)) return "samsung";
+      if (/\bcrucial\b/.test(value)) return "crucial";
+      if (/\bkingston\b/.test(value)) return "kingston";
+      if (/\bseagate\b/.test(value)) return "seagate";
+      if (/\btoshiba\b/.test(value)) return "toshiba";
+    }
+    if (category === "motherboard") {
+      return value.match(/\b(msi|asus|gigabyte|asrock|biostar|intel)\b/)?.[1] ?? null;
+    }
+    if (category === "psu") {
+      return value.match(/\b(corsair|seasonic|evga|be quiet|cooler master|thermaltake|antec|silverstone|msi)\b/)?.[1] ?? null;
+    }
+    return null;
+  }
+
+  function parseProductIdentity(value, category, supplied = {}) {
+    const text = normalize(value);
+    const identity = {
       category,
-      segment,
-      matchScore: result.score,
-      alternatives: rankCandidates(segment, category, 8).map(({ part }) => part.id),
+      manufacturer: supplied.manufacturer && supplied.manufacturer !== "unknown"
+        ? normalize(supplied.manufacturer)
+        : manufacturerFor(text, category),
+      family: supplied.family ? normalize(supplied.family) : null,
+      modelNumber: supplied.modelNumber ? normalize(supplied.modelNumber) : null,
+      variant: supplied.variant ? normalize(supplied.variant) : null,
+      capacityGb: Number.isFinite(supplied.capacityGb) ? supplied.capacityGb : null,
+      storageMedium: supplied.storageMedium ? normalize(supplied.storageMedium) : null,
+      interface: supplied.interface ? normalize(supplied.interface) : null,
+      wattage: Number.isFinite(supplied.wattage) ? supplied.wattage : null,
+      qualifiers: [],
+    };
+
+    if (category === "cpu") {
+      const ryzen = text.match(/\bryzen\s+([3579])\s+(\d{4,5}(?:x3d|xt|x|g)?)\b/);
+      const intel = text.match(/\bcore\s+(i[3579])[- ]?(\d{4,5}(?:k|kf|f|ks|s|t)?)\b/);
+      const ultra = text.match(/\bcore\s+ultra\s+([3579])\s+(\d{3}[a-z]?)\b/);
+      if (ryzen) {
+        identity.family ??= `ryzen ${ryzen[1]}`;
+        identity.modelNumber ??= ryzen[2];
+      } else if (intel) {
+        identity.family ??= `core ${intel[1]}`;
+        identity.modelNumber ??= intel[2];
+      } else if (ultra) {
+        identity.family ??= `core ultra ${ultra[1]}`;
+        identity.modelNumber ??= ultra[2];
+      }
+    } else if (category === "gpu") {
+      const geforce = text.match(/\b(rtx|gtx)\s*(\d{3,4})\s*(ti|super)?\b/);
+      const radeon = text.match(/\brx\s*(\d{3,4})\s*(xt|xtx)?\b/);
+      const arc = text.match(/\barc\s*([ab]\d{3})\b/);
+      if (geforce) {
+        identity.family ??= `geforce ${geforce[1]}`;
+        identity.modelNumber ??= geforce[2];
+        if (geforce[3]) identity.qualifiers.push(geforce[3]);
+      } else if (radeon) {
+        identity.family ??= "radeon rx";
+        identity.modelNumber ??= radeon[1];
+        if (radeon[2]) identity.qualifiers.push(radeon[2]);
+      } else if (arc) {
+        identity.family ??= "intel arc";
+        identity.modelNumber ??= arc[1];
+      }
+      const vram = text.match(/\b(\d{1,2})gb\b/);
+      if (vram && !identity.variant) identity.variant = `${vram[1]}gb`;
+    } else if (category === "storage") {
+      if (/\bgreen\b/.test(text)) identity.family ??= "green";
+      identity.modelNumber ??= text.match(/\b(sn\d{3,4}|wds[a-z0-9]+|mx500|[0-9]{3,4}\s*evo)\b/)?.[1] ?? null;
+      const capacity = text.match(/\b(\d+(?:\.\d+)?)(gb|tb)\b/);
+      identity.capacityGb ??= capacity ? capacityToGb(capacity[1], capacity[2]) : null;
+      if (!identity.storageMedium) {
+        if (/\b(hdd)\b/.test(text) && !/\b(ssd|nvme)\b/.test(text)) identity.storageMedium = "hdd";
+        else if (/\b(ssd|nvme)\b/.test(text)) identity.storageMedium = "ssd";
+      }
+      if (!identity.interface || identity.interface === "unknown") {
+        if (/\b(nvme|pcie|gen[345])\b/.test(text)) identity.interface = "nvme";
+        else if (/\bsata\b/.test(text)) identity.interface = "sata";
+      }
+    } else if (category === "ram") {
+      identity.family ??= text.match(/\bddr[345]\b/)?.[0] ?? null;
+      const capacity = text.match(/\b(\d+)gb\b/);
+      identity.capacityGb ??= capacity ? Number(capacity[1]) : null;
+    } else if (category === "motherboard") {
+      identity.family ??= text.match(/\b(a320|b350|b450|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z\d{2,3}|h\d{2,3})\b/)?.[1] ?? null;
+    } else if (category === "psu") {
+      const wattage = text.match(/\b(\d{3,4})w\b/);
+      identity.wattage ??= wattage ? Number(wattage[1]) : null;
+    }
+
+    return identity;
+  }
+
+  function parseRamDetails(source) {
+    const text = source.toLowerCase();
+    const patterns = [
+      /\b(\d+|one|two|three|four|five|six|seven|eight)\s*(?:sticks?|modules?)\s*(?:of\s*)?(\d+)\s*gb\b/i,
+      /\b(\d+|one|two|three|four|five|six|seven|eight)\s+(\d+)\s*gb\s*(?:sticks?|modules?)\b/i,
+      /\b(\d+)\s*[x×]\s*(\d+)\s*gb\b/i,
+    ];
+    let quantity = null;
+    let unitCapacity = null;
+    for (const pattern of patterns) {
+      const match = text.match(pattern);
+      if (match) {
+        quantity = numberValue(match[1]);
+        unitCapacity = Number(match[2]);
+        break;
+      }
+    }
+    if (quantity === null) {
+      const reversed = text.match(/\b(\d+)\s*gb\s*[x×]\s*(\d+)\b/i);
+      if (reversed) {
+        unitCapacity = Number(reversed[1]);
+        quantity = Number(reversed[2]);
+      }
+    }
+    const explicit = text.match(/\b(\d+)\s*gb\b/i);
+    const totalCapacity = quantity !== null && unitCapacity !== null
+      ? quantity * unitCapacity
+      : explicit
+        ? Number(explicit[1])
+        : null;
+    return {
+      quantity,
+      unitCapacity,
+      totalCapacity,
+      arithmetic: quantity !== null
+        ? `${quantity} × ${unitCapacity}GB = ${totalCapacity}GB`
+        : totalCapacity !== null
+          ? `${totalCapacity}GB total; module configuration not stated`
+          : "Capacity not stated",
     };
   }
 
-  function storageIdentity(part, segment) {
-    const segmentText = normalize(segment);
-    const combinedText = normalize(`${segment} ${part?.name ?? ""}`);
-    const capacity = combinedText.match(/\b\d+(?:gb|tb)\b/)?.[0] ?? "";
-    const type = /\bhdd\b/.test(combinedText) && !/\b(ssd|nvme)\b/.test(combinedText)
-      ? "hdd"
-      : /\b(ssd|nvme)\b/.test(combinedText)
-        ? "ssd"
-        : /\b(blu-ray|dvd)\b/.test(combinedText)
-          ? "optical"
-          : "";
-    const models = usefulTokens(segmentText).filter((token) => {
-      if (/^\d+(?:gb|tb|mhz|w)$/.test(token)) return false;
-      return /[a-z]\d|\d[a-z]/.test(token) || /^\d{3,}$/.test(token);
+  function makeEntity(componentType, sourceText, sourceStart, sourceEnd, extra = {}) {
+    const entity = {
+      componentType,
+      manufacturer: null,
+      productFamily: null,
+      modelNumber: null,
+      variant: null,
+      capacity: null,
+      unitCapacity: null,
+      quantity: null,
+      totalCapacity: null,
+      storageMedium: null,
+      interface: null,
+      wattage: null,
+      qualifiers: [],
+      sourceText,
+      sourceStart,
+      sourceEnd,
+      containerStart: extra.containerStart ?? sourceStart,
+      identificationConfidence: "low",
+      parsedArithmetic: null,
+      ...extra,
+    };
+    const identity = parseProductIdentity(sourceText, componentType, {
+      manufacturer: entity.manufacturer,
+      family: entity.productFamily,
+      modelNumber: entity.modelNumber,
+      variant: entity.variant,
+      capacityGb: entity.totalCapacity ?? entity.capacity,
+      storageMedium: entity.storageMedium,
+      interface: entity.interface,
+      wattage: entity.wattage,
     });
-
-    return { capacity, type, models };
+    entity.manufacturer = identity.manufacturer;
+    entity.productFamily = identity.family;
+    entity.modelNumber = identity.modelNumber;
+    entity.variant = identity.variant;
+    entity.capacity ??= identity.capacityGb;
+    entity.totalCapacity ??= identity.capacityGb;
+    entity.storageMedium ??= identity.storageMedium;
+    entity.interface ??= identity.interface;
+    entity.wattage ??= identity.wattage;
+    entity.qualifiers = [...new Set([...entity.qualifiers, ...identity.qualifiers])];
+    return entity;
   }
 
-  function isLikelyDuplicateStorage(existing, result, segment) {
-    if (existing.partId === result.part.id) return true;
-    if (normalize(existing.segment) === normalize(segment)) return true;
+  function categorySpecificSpan(source, category, categoryCount) {
+    if (categoryCount <= 1) return { text: source, index: 0 };
+    const patterns = {
+      cpu: /\b(?:(?:amd\s+)?ryzen\s+[3579]\s+\d{4,5}(?:x3d|xt|x|g)?|(?:intel\s+)?core\s+(?:i[3579][-\s]?\d{4,5}[a-z]*|ultra\s+[3579]\s+\d{3}[a-z]?))\b/i,
+      gpu: /\b(?:(?:nvidia\s+)?(?:geforce\s+)?(?:rtx|gtx)\s*\d{3,4}(?:\s*(?:ti|super))?(?:\s+\d{1,2}\s*gb)?|(?:amd\s+)?(?:radeon\s+)?rx\s*\d{3,4}(?:\s*(?:xt|xtx))?)\b/i,
+      ram: /\b(?:(?:\d+|one|two|three|four|five|six|seven|eight)\s*(?:sticks?|modules?)\s*(?:of\s*)?\d+\s*gb|\d+\s*[x×]\s*\d+\s*gb|\d+\s*gb\s*[x×]\s*\d+|\d+\s*gb)(?:\s+ddr[345])?(?:\s+(?:ram|memory))?\b/i,
+      psu: /\b(?:(?:corsair|seasonic|evga|be quiet|cooler master|thermaltake|antec|silverstone|msi)\s+)?\d{3,4}\s*w(?:\s+(?:psu|power supply))?\b/i,
+      motherboard: /\b(?:(?:msi|asus|gigabyte|asrock|biostar)\s+)?[abxhzb]\d{2,3}(?:\s+[\w-]+){0,4}\b/i,
+      cooler: /\b(?:amd\s+wraith\s+\w+(?:\s+stock)?\s+cooler|[\w-]+\s+(?:cpu\s+)?cooler|aio)\b/i,
+      case: /\b(?:nzxt\s+h\d{3}|corsair\s+[45]000d|[\w-]+\s+(?:pc\s+)?case|chassis)\b/i,
+    };
+    const match = source.match(patterns[category]);
+    return match ? { text: match[0], index: match.index } : { text: source, index: 0 };
+  }
 
-    const existingPart = byId.get(existing.partId);
-    const left = storageIdentity(existingPart, existing.segment);
-    const right = storageIdentity(result.part, segment);
-    if (!left.capacity || left.capacity !== right.capacity || !left.type || left.type !== right.type) {
-      return false;
+  function extractComponentEntities(description) {
+    const entities = [];
+    const chunkPattern = /[^\n;|•]+/g;
+    for (const chunkMatch of description.matchAll(chunkPattern)) {
+      const raw = chunkMatch[0];
+      const leading = raw.match(/^\s*/)?.[0].length ?? 0;
+      const source = raw.trim();
+      if (!source) continue;
+      const chunkStart = chunkMatch.index + leading;
+      const categories = detectCategories(source);
+      let storageCount = 0;
+
+      if (categories.includes("storage")) {
+        const storagePattern = /\b(\d+(?:\.\d+)?)\s*(gb|gigabytes?|tb|terabytes?)\s*(?:(m\s*\.?\s*2|nvme|sata|pcie|pci-e)\s*)?(ssd|solid[\s-]*state(?:\s+drive)?|hdd|hard[\s-]*(?:disk|drive))\b/gi;
+        const storageMatches = [...source.matchAll(storagePattern)];
+        for (const match of storageMatches) {
+          const capacity = capacityToGb(match[1], match[2]);
+          const device = normalize(match[4]);
+          const storageMedium = /\bhdd\b/.test(device) ? "hdd" : "ssd";
+          const explicitInterface = normalize(match[3] ?? "");
+          const interfaceName = /\b(nvme|pcie|m2)\b/.test(explicitInterface)
+            ? "nvme"
+            : /\bsata\b/.test(explicitInterface)
+              ? "sata"
+              : null;
+          const useWholeChunk = storageMatches.length === 1 && categories.length === 1;
+          const storageSource = useWholeChunk ? source : match[0];
+          const start = useWholeChunk ? chunkStart : chunkStart + match.index;
+          entities.push(makeEntity("storage", storageSource, start, start + storageSource.length, {
+            capacity,
+            totalCapacity: capacity,
+            storageMedium,
+            interface: interfaceName,
+            containerStart: chunkStart,
+            parsedArithmetic: `${displayCapacity(capacity)} ${storageMedium.toUpperCase()}; one storage device`,
+          }));
+          storageCount += 1;
+        }
+      }
+
+      for (const category of categories) {
+        if (category === "storage" && storageCount) continue;
+        const span = categorySpecificSpan(source, category, categories.length);
+        const entityStart = chunkStart + span.index;
+        if (category === "ram") {
+          const ram = parseRamDetails(span.text);
+          entities.push(makeEntity("ram", span.text, entityStart, entityStart + span.text.length, {
+            capacity: ram.totalCapacity,
+            totalCapacity: ram.totalCapacity,
+            unitCapacity: ram.unitCapacity,
+            quantity: ram.quantity,
+            parsedArithmetic: ram.arithmetic,
+          }));
+          continue;
+        }
+        entities.push(makeEntity(category, span.text, entityStart, entityStart + span.text.length, {
+          containerStart: chunkStart,
+        }));
+      }
+    }
+    return entities;
+  }
+
+  function registeredAliases(part) {
+    return [part.name, part.alias, ...(Array.isArray(part.aliases) ? part.aliases : [])]
+      .filter(Boolean)
+      .map(normalize);
+  }
+
+  function exactPhrase(haystack, needle) {
+    if (!needle) return false;
+    const text = ` ${normalize(haystack)} `;
+    const phrase = ` ${normalize(needle)} `;
+    return text.includes(phrase);
+  }
+
+  function conflictReason(entity, partIdentity) {
+    if (entity.componentType !== partIdentity.category) return "component category conflict";
+    if (entity.manufacturer && partIdentity.manufacturer && entity.manufacturer !== partIdentity.manufacturer) {
+      return "manufacturer conflict";
+    }
+    if (entity.productFamily && partIdentity.family && entity.productFamily !== partIdentity.family) {
+      return "product-family conflict";
+    }
+    if (entity.modelNumber && partIdentity.modelNumber && compact(entity.modelNumber) !== compact(partIdentity.modelNumber)) {
+      return "model-number conflict";
+    }
+    if (entity.qualifiers.length && partIdentity.qualifiers.length
+      && entity.qualifiers.some((item) => !partIdentity.qualifiers.includes(item))) {
+      return "model-qualifier conflict";
+    }
+    if (entity.componentType === "gpu" && entity.modelNumber
+      && !entity.qualifiers.length && partIdentity.qualifiers.length) {
+      return "model-qualifier conflict";
+    }
+    if (entity.variant && entity.variant !== "unknown" && partIdentity.variant && partIdentity.variant !== "unknown"
+      && entity.variant !== partIdentity.variant) {
+      return "variant conflict";
+    }
+    if (entity.totalCapacity !== null && partIdentity.capacityGb !== null
+      && entity.totalCapacity !== partIdentity.capacityGb) {
+      return "capacity conflict";
+    }
+    if (entity.storageMedium && partIdentity.storageMedium
+      && entity.storageMedium !== partIdentity.storageMedium) {
+      return "storage-medium conflict";
+    }
+    if (entity.interface && partIdentity.interface && partIdentity.interface !== "unknown"
+      && entity.interface !== partIdentity.interface) {
+      return "storage-interface conflict";
+    }
+    if (entity.componentType === "ram" && entity.quantity !== null && entity.unitCapacity !== null
+      && entity.totalCapacity !== entity.quantity * entity.unitCapacity) {
+      return "RAM quantity arithmetic conflict";
+    }
+    return null;
+  }
+
+  function safeCandidate(part, entity) {
+    const identity = part._identity;
+    if (conflictReason(entity, identity)) return null;
+    const source = entity.sourceText;
+    const canonical = normalize(part.name).replace(/\s*\([^)]*(?:unknown|unspecified)[^)]*\)\s*/g, " ").trim();
+    const aliases = registeredAliases(part);
+    let rank = null;
+    let reason = "";
+
+    if (exactPhrase(source, canonical)) {
+      rank = 1;
+      reason = "exact canonical model";
+    } else if (aliases.slice(1).some((alias) => exactPhrase(source, alias) || compact(source) === compact(alias))) {
+      rank = 2;
+      reason = "exact registered alias";
+    } else {
+      const sameManufacturer = !entity.manufacturer || !identity.manufacturer || entity.manufacturer === identity.manufacturer;
+      const sameFamily = entity.productFamily && identity.family && entity.productFamily === identity.family;
+      const sameModel = entity.modelNumber && identity.modelNumber
+        && compact(entity.modelNumber) === compact(identity.modelNumber);
+      const ambiguousVariant = sameModel && (
+        !entity.variant || entity.variant === "unknown" || !identity.variant || identity.variant === "unknown"
+      );
+
+      if (sameManufacturer && sameFamily && sameModel && !ambiguousVariant) {
+        rank = 3;
+        reason = "same manufacturer, family and model number";
+      } else if (sameManufacturer && sameFamily && sameModel && ambiguousVariant) {
+        rank = 4;
+        reason = "same family/model with ambiguous variant";
+      } else if (entity.componentType === "storage"
+        && entity.totalCapacity !== null
+        && identity.capacityGb === entity.totalCapacity
+        && entity.storageMedium
+        && identity.storageMedium === entity.storageMedium
+        && (!entity.interface || !identity.interface || identity.interface === "unknown" || entity.interface === identity.interface)) {
+        rank = 3;
+        reason = "same storage capacity, medium and interface";
+      } else if (entity.componentType === "ram"
+        && entity.totalCapacity !== null
+        && identity.capacityGb === entity.totalCapacity
+        && entity.productFamily
+        && identity.family === entity.productFamily
+        && (entity.quantity === null || !Number.isFinite(part.quantity) || entity.quantity === part.quantity)
+        && (entity.unitCapacity === null || !Number.isFinite(part.unitCapacityGb) || entity.unitCapacity === part.unitCapacityGb)) {
+        rank = 3;
+        reason = "same RAM generation and exact calculated capacity";
+      } else if (entity.componentType === "psu"
+        && entity.wattage && identity.wattage === entity.wattage
+        && (!entity.manufacturer || !identity.manufacturer || entity.manufacturer === identity.manufacturer)) {
+        rank = 3;
+        reason = "exact wattage with no manufacturer conflict";
+      }
     }
 
-    if (left.models.length && right.models.length) {
-      return left.models.some((model) => right.models.includes(model));
-    }
+    if (rank === null) return null;
+    let preference = 0;
+    if (entity.componentType === "gpu" && !entity.variant && identity.variant === "unknown") preference += 20;
+    if (entity.componentType === "storage" && entity.modelNumber && identity.modelNumber) preference += 10;
+    if (part.genericVariant) preference += 20;
+    return {
+      part,
+      rank,
+      score: { 1: 0.99, 2: 0.94, 3: 0.88, 4: 0.74 }[rank],
+      reason,
+      preference,
+    };
+  }
 
-    return true;
+  for (const part of parts) {
+    part._identity = parseProductIdentity(part.name, part.category, part);
+  }
+
+  function entityFromQuery(source, category) {
+    const detected = category ?? detectCategories(source)[0] ?? null;
+    return detected ? makeEntity(detected, source, 0, source.length) : null;
+  }
+
+  function rankCandidates(sourceOrEntity, category = null, limit = 6) {
+    const entity = typeof sourceOrEntity === "string"
+      ? entityFromQuery(sourceOrEntity, category)
+      : sourceOrEntity;
+    if (!entity) return [];
+    return parts
+      .filter((part) => part.category === entity.componentType)
+      .map((part) => safeCandidate(part, entity))
+      .filter(Boolean)
+      .sort((a, b) => a.rank - b.rank || b.preference - a.preference || b.score - a.score || a.part.name.length - b.part.name.length)
+      .slice(0, limit);
+  }
+
+  function makeMatch(result, entity) {
+    const candidateIdentities = rankCandidates(entity, entity.componentType, 12);
+    const variants = new Set(candidateIdentities.map(({ part }) => part._identity.variant).filter((value) => value && value !== "unknown"));
+    const variantAmbiguous = !entity.variant && variants.size > 1;
+    const inferences = [];
+    const exactCatalogueModel = entity.modelNumber && result.part._identity.modelNumber
+      && compact(entity.modelNumber) === compact(result.part._identity.modelNumber);
+    if (entity.componentType === "storage" && !entity.interface
+      && exactCatalogueModel && result.part._identity.interface && result.part._identity.interface !== "unknown") {
+      inferences.push(`Interface inferred from exact catalogue model: ${result.part.interface ?? result.part._identity.interface}`);
+    }
+    return {
+      uid: `match-${++uidCounter}`,
+      partId: result.part.id,
+      category: entity.componentType,
+      segment: entity.sourceText,
+      entity,
+      sourceStart: entity.sourceStart,
+      sourceEnd: entity.sourceEnd,
+      matchScore: result.score,
+      matchRank: result.rank,
+      matchReason: result.reason,
+      familyIdentification: result.rank <= 3 || (entity.productFamily && entity.modelNumber) ? "high" : "medium",
+      variantIdentification: variantAmbiguous ? "low" : entity.variant ? "high" : "medium",
+      variantAmbiguous,
+      resolvedInterface: entity.interface ?? (exactCatalogueModel ? result.part._identity.interface : null),
+      inferences,
+      matched: true,
+      alternatives: candidateIdentities.map(({ part }) => part.id),
+    };
+  }
+
+  function extractedEntityLabel(entity) {
+    if (entity.componentType === "ram" && entity.totalCapacity !== null) {
+      const config = entity.quantity !== null ? ` (${entity.quantity}×${entity.unitCapacity}GB)` : "";
+      return `${displayCapacity(entity.totalCapacity)} ${String(entity.productFamily ?? "RAM").toUpperCase()}${config}`;
+    }
+    if (entity.componentType === "storage" && entity.totalCapacity !== null) {
+      const medium = entity.storageMedium?.toUpperCase() ?? "storage";
+      const interfaceName = entity.interface ? entity.interface.toUpperCase() : "interface unknown";
+      return `${displayCapacity(entity.totalCapacity)} ${medium}, ${interfaceName}`;
+    }
+    return entity.sourceText.replace(/^[^:]{2,20}:\s*/, "").trim();
+  }
+
+  function makeUnmatched(entity) {
+    const id = `unmatched-${entity.componentType}-${compact(entity.sourceText)}-${entity.sourceStart}`;
+    const part = {
+      id,
+      category: entity.componentType,
+      name: `${extractedEntityLabel(entity)} — unmatched`,
+      price: 0,
+      priceLow: 0,
+      priceHigh: 0,
+      confidence: "low",
+      valuationConfidence: "low",
+      isUnmatched: true,
+    };
+    part._identity = parseProductIdentity(part.name, part.category, part);
+    byId.set(id, part);
+    const conflicts = [...new Set(parts
+      .filter((candidate) => candidate.category === entity.componentType)
+      .map((candidate) => conflictReason(entity, candidate._identity))
+      .filter(Boolean))];
+    return {
+      uid: `match-${++uidCounter}`,
+      partId: id,
+      category: entity.componentType,
+      segment: entity.sourceText,
+      entity,
+      sourceStart: entity.sourceStart,
+      sourceEnd: entity.sourceEnd,
+      matchScore: 0,
+      matchRank: null,
+      matchReason: "No safe catalogue candidate",
+      familyIdentification: "low",
+      variantIdentification: "low",
+      variantAmbiguous: false,
+      resolvedInterface: entity.interface,
+      inferences: [],
+      conflicts,
+      matched: false,
+      alternatives: [],
+    };
+  }
+
+  function storageEntitySignature(entity) {
+    return [
+      entity.manufacturer,
+      entity.modelNumber,
+      entity.totalCapacity,
+      entity.storageMedium,
+      entity.interface,
+    ].join("|");
   }
 
   function analyseDescription(description) {
     const matches = [];
-    const segments = splitSegments(description);
+    const entities = extractComponentEntities(description);
 
-    for (const segment of segments) {
-      const categories = detectCategories(segment);
-      for (const category of categories) {
-        const ranked = rankCandidates(segment, category, 8);
-        const best = ranked[0];
-        if (!best || best.score < 0.34) continue;
-
-        if (category === "storage") {
-          const duplicate = matches.find((match) => (
-            match.category === "storage" && isLikelyDuplicateStorage(match, best, segment)
-          ));
-          if (!duplicate) {
-            matches.push(makeMatch(best, segment, category));
-          } else if (best.score > duplicate.matchScore) {
-            Object.assign(duplicate, makeMatch(best, segment, category), { uid: duplicate.uid });
-          }
-          continue;
-        }
-
-        const existing = matches.find((match) => match.category === category);
-        if (!existing) {
-          matches.push(makeMatch(best, segment, category));
-        } else if (best.score > existing.matchScore) {
-          Object.assign(existing, makeMatch(best, segment, category), { uid: existing.uid });
-        }
+    for (const entity of entities) {
+      if (entity.componentType === "storage") {
+        const duplicate = matches.find((match) => (
+          match.category === "storage"
+          && match.entity.containerStart !== entity.containerStart
+          && storageEntitySignature(match.entity) === storageEntitySignature(entity)
+        ));
+        if (duplicate) continue;
+      } else if (matches.some((match) => match.category === entity.componentType)) {
+        continue;
       }
-    }
 
-    if (!matches.length && description.trim()) {
-      const broad = rankCandidates(description, null, 4).filter((result) => result.score >= 0.45);
-      for (const result of broad) matches.push(makeMatch(result, description, result.part.category));
+      const best = rankCandidates(entity, entity.componentType, 12)[0];
+      matches.push(best ? makeMatch(best, entity) : makeUnmatched(entity));
     }
-
     return matches;
   }
 
   function identificationConfidence(match) {
-    const value = match.matchScore;
+    const value = match.matched ? match.matchScore : 0;
     if (value >= 0.8) return { label: "High", className: "high", value };
     if (value >= 0.58) return { label: "Medium", className: "medium", value };
     return { label: "Low", className: "low", value };
@@ -368,8 +693,14 @@ PSU: Corsair 650W`;
     const age = saleAgeDays(sale);
     return sale?.priceType === "exact"
       && sale.bestOfferAccepted !== true
+      && sale.acceptedBestOfferUnknown !== true
       && sale.condition !== "faulty"
       && sale.condition !== "parts-only"
+      && sale.listingStatus !== "active"
+      && !(sale.sellerType === "business" && sale.condition === "new")
+      && sale.includesMonitor !== true
+      && sale.includesPeripherals !== true
+      && sale.materiallyDifferentGpu !== true
       && Number.isFinite(normalisedSellerPrice(sale))
       && age !== null
       && age <= maxAgeDays;
@@ -450,120 +781,285 @@ PSU: Corsair 650W`;
     return low === high ? formatGBP(low) : `${formatGBP(low)}–${formatGBP(high)}`;
   }
 
-  const UNKNOWN_ALLOWANCES = {
-    case: { key: "case", label: "Unknown functional case", low: 20, high: 40 },
-    psu: { key: "psu", label: "Unknown functional PSU", low: 15, high: 30, risk: true },
-    cooler: { key: "cooler", label: "Unknown CPU cooler", low: 10, high: 20 },
-    accessories: { key: "accessories", label: "Fans / Wi-Fi accessory", low: 5, high: 15 },
-  };
+  function catalogueAllowance(partId, key, label, extra = {}) {
+    const part = byId.get(partId);
+    const valuation = partValuation(part);
+    return {
+      key,
+      partId,
+      label: label ?? part?.name ?? key,
+      low: valuation.low,
+      mid: valuation.mid,
+      high: valuation.high,
+      valuationConfidence: "low",
+      inferred: true,
+      ...extra,
+    };
+  }
 
   function looksLikeCompleteDesktop(matches, description) {
     if (/\b(parts only|components only|bundle only|not a complete pc)\b/.test(normalize(description))) return false;
-    const found = new Set(matches.map((match) => match.category));
+    const found = new Set(matches.filter((match) => match.matched).map((match) => match.category));
     const coreCount = ["cpu", "gpu", "motherboard", "ram", "storage"]
       .filter((category) => found.has(category)).length;
     return coreCount >= 4;
   }
 
+  function inferredMotherboardAllowance() {
+    const cpuMatch = state.matches.find((match) => match.category === "cpu" && match.matched);
+    const cpu = byId.get(cpuMatch?.partId);
+    const identity = cpu?._identity;
+    if (!identity) return null;
+    const model = identity.modelNumber ?? "";
+    if (identity.manufacturer === "amd" && /^([1-5]\d{3})/.test(model)) {
+      return catalogueAllowance(
+        "motherboard-unknown-am4",
+        "motherboard",
+        "Unknown functional AM4 motherboard",
+        { inferredFrom: cpu.name },
+      );
+    }
+    if (identity.manufacturer === "intel" && identity.family === "core i5" && /^8\d{3}/.test(model)) {
+      return catalogueAllowance(
+        "motherboard-unknown-intel-300",
+        "motherboard",
+        "Unknown compatible Intel 300-series motherboard",
+        { inferredFrom: cpu.name },
+      );
+    }
+    return null;
+  }
+
+  function wifiAdapterIncluded(text) {
+    const mentionsWifi = /\b(wifi|wi-fi|wireless)\b/.test(text);
+    if (!mentionsWifi) return false;
+    if (/\b(no (?:built-in )?(?:wifi|wi-fi|wireless)|adapter (?:can|could) be added|adapter not included|no adapter|without (?:wifi|wi-fi|wireless))\b/.test(text)) {
+      return false;
+    }
+    return /\b((?:wifi|wi-fi|wireless) (?:adapter|card|dongle) (?:included|supplied)|includes? (?:a )?(?:wifi|wi-fi|wireless) (?:adapter|card|dongle)|comes? with (?:a )?(?:wifi|wi-fi|wireless) (?:adapter|card|dongle))\b/.test(text);
+  }
+
   function unknownAllowances() {
     if (!looksLikeCompleteDesktop(state.matches, state.description)) return [];
-    const found = new Set(state.matches.map((match) => match.category));
+    const found = new Set(state.matches.filter((match) => match.matched).map((match) => match.category));
     const text = normalize(state.description);
     const allowances = [];
 
-    for (const key of ["case", "psu", "cooler"]) {
-      if (!found.has(key)) allowances.push(UNKNOWN_ALLOWANCES[key]);
+    if (!found.has("motherboard")) {
+      const motherboard = inferredMotherboardAllowance();
+      if (motherboard) allowances.push(motherboard);
     }
 
-    if (/\b(case fans?|extra fans?|wifi (?:card|adapter|dongle)|wireless (?:card|adapter))\b/.test(text)) {
-      allowances.push(UNKNOWN_ALLOWANCES.accessories);
-    }
+    if (!found.has("case")) allowances.push(catalogueAllowance("case-generic", "case", "Unknown functional case"));
+    if (!found.has("psu")) allowances.push(catalogueAllowance("psu-generic-500", "psu", "Unknown-brand PSU", { risk: true }));
+    if (!found.has("cooler")) allowances.push(catalogueAllowance("cooler-generic", "cooler", "Unknown/basic CPU cooler"));
+
+    if (wifiAdapterIncluded(text)) allowances.push({
+      key: "wifi",
+      label: "Included Wi-Fi adapter",
+      low: 5,
+      mid: 10,
+      high: 15,
+      valuationConfidence: "low",
+      inferred: false,
+    });
 
     return allowances;
   }
 
-  function conditionProfile(completeMid, allowances) {
+  function conditionProfile(allowances) {
     const text = normalize(state.description);
-    let fairFactor = completeMid < 400 ? 0.97 : completeMid < 900 ? 0.95 : 0.91;
     const notes = [];
-    let riskSpread = 0;
-
-    const gpu = state.matches
-      .filter((match) => match.category === "gpu")
-      .map((match) => normalize(byId.get(match.partId)?.name ?? ""))
-      .join(" ");
-    if (/\b(rtx 40|rtx 50|rx 7\d{3}|rx 9\d{3})/.test(gpu)) fairFactor += 0.01;
-    if (/\b(b450|x470|am4|z370|z390)\b/.test(text)) fairFactor -= 0.01;
-    fairFactor -= Math.min(0.025, allowances.length * 0.005);
-
-    if (/\b(warranty|guarantee)\b/.test(text)) {
-      fairFactor += 0.015;
-      notes.push("warranty mentioned");
-    }
-    if (/\b(clean|cleaned|tested|benchmarked|documented)\b/.test(text)) {
-      fairFactor += 0.015;
-      notes.push("condition evidence mentioned");
-    }
+    let conditionFactor = 1;
+    let riskSpread = allowances.some((item) => item.risk) ? 0.025 : 0;
+    const verifiedPresentation = /\b(tested|benchmarked|stress tested|verified working|cleaned and tested)\b/.test(text);
+    if (verifiedPresentation) notes.push("test/clean evidence mentioned");
     if (/\b(dust|dusty|dirty|scratched|damage)\b/.test(text)) {
-      fairFactor -= 0.035;
-      riskSpread += 12;
+      conditionFactor -= 0.035;
+      riskSpread += 0.03;
       notes.push("cosmetic condition risk");
     }
     if (/\b(untested|no power|faulty|for parts|spares or repair)\b/.test(text)) {
-      fairFactor -= 0.12;
-      riskSpread += 30;
+      conditionFactor -= 0.12;
+      riskSpread += 0.08;
       notes.push("functional uncertainty");
     }
     if (/\b(zero feedback|0 feedback|new seller)\b/.test(text)) {
-      fairFactor -= 0.025;
-      riskSpread += 10;
+      conditionFactor -= 0.025;
+      riskSpread += 0.02;
       notes.push("seller-history risk");
     }
 
     return {
-      fairFactor: Math.max(0.72, Math.min(0.99, fairFactor)),
-      quickDiscount: 0.1 + Math.min(0.04, allowances.length * 0.008),
-      cleanPremium: 0.075,
+      conditionFactor: Math.max(0.72, Math.min(1, conditionFactor)),
+      cleanPremium: verifiedPresentation ? 0.05 : 0,
       riskSpread,
       notes,
     };
   }
 
+  function storageCapacityByMedium(matches) {
+    return matches
+      .filter((match) => match.category === "storage" && match.entity)
+      .reduce((summary, match) => {
+        const medium = match.entity.storageMedium;
+        if (medium && match.entity.totalCapacity) summary[medium] += match.entity.totalCapacity;
+        return summary;
+      }, { ssd: 0, hdd: 0 });
+  }
+
   function comparableScore(sale) {
     const selected = new Map(state.matches.map((match) => [match.category, byId.get(match.partId)]));
-    const cpu = normalize(selected.get("cpu")?.name ?? "");
-    const gpu = normalize(selected.get("gpu")?.name ?? "");
-    const ram = normalize(selected.get("ram")?.name ?? "");
-    const storage = normalize(selected.get("storage")?.name ?? "");
+    const cpuIdentity = selected.get("cpu")?._identity;
+    const gpuIdentity = selected.get("gpu")?._identity;
+    const saleCpu = parseProductIdentity(sale.cpu ?? "", "cpu");
+    const saleGpu = parseProductIdentity(sale.gpu ?? "", "gpu");
+    const ram = state.matches.find((match) => match.category === "ram")?.entity?.totalCapacity ?? 0;
+    const storage = storageCapacityByMedium(state.matches);
     let score = 0;
 
-    if (cpu && sale.cpu && (cpu.includes(normalize(sale.cpu)) || normalize(sale.cpu).includes(cpu))) score += 0.35;
-    if (gpu && sale.gpu && (gpu.includes(normalize(sale.gpu)) || normalize(sale.gpu).includes(gpu))) score += 0.4;
-    if (sale.ramGb && ram.includes(`${sale.ramGb}gb`)) score += 0.12;
-    if (sale.storageGb && storage.includes(sale.storageGb >= 1000 ? `${sale.storageGb / 1000}tb` : `${sale.storageGb}gb`)) score += 0.08;
+    if (cpuIdentity?.family && cpuIdentity.family === saleCpu.family) score += 0.12;
+    if (cpuIdentity?.modelNumber && cpuIdentity.modelNumber === saleCpu.modelNumber) score += 0.18;
+    if (gpuIdentity?.family && gpuIdentity.family === saleGpu.family) score += 0.15;
+    if (gpuIdentity?.modelNumber && gpuIdentity.modelNumber === saleGpu.modelNumber) score += 0.22;
+    if (gpuIdentity?.variant && gpuIdentity.variant !== "unknown" && gpuIdentity.variant === saleGpu.variant) score += 0.12;
+    if (sale.ramGb && ram === sale.ramGb) score += 0.08;
+    if (sale.ssdGb !== undefined && storage.ssd === sale.ssdGb) score += 0.05;
+    if (sale.hddGb !== undefined && storage.hdd === sale.hddGb) score += 0.03;
+    if (sale.storageGb && storage.ssd + storage.hdd === sale.storageGb) score += 0.06;
+    if (sale.sellerType === "private") score += 0.025;
+    if (sale.condition === "used") score += 0.025;
     return score;
   }
 
   function systemComparables() {
     const close = (marketSales.systems ?? [])
       .map((sale) => ({ sale, score: comparableScore(sale) }))
-      .filter((item) => item.score >= 0.7);
+      .filter((item) => item.score >= 0.62);
     const exact = close
-      .filter(({ sale }) => eligibleExactSale(sale))
+      .filter(({ sale }) => eligibleExactSale(sale, 180))
       .map(({ sale, score }) => ({
         value: normalisedSellerPrice(sale),
-        weight: score * Math.exp((-Math.LN2 * saleAgeDays(sale)) / 45),
+        weight: score
+          * (sale.sellerType === "private" ? 1 : 0.7)
+          * (sale.condition === "used" ? 1 : 0.75)
+          * Math.exp((-Math.LN2 * saleAgeDays(sale)) / 60),
       }));
-    const censored = close.filter(({ sale }) => sale.priceType === "upper-bound" || sale.bestOfferAccepted === true);
+    const censored = close.filter(({ sale }) => (
+      sale.priceType === "upper-bound"
+      || sale.bestOfferAccepted === true
+      || sale.acceptedBestOfferUnknown === true
+    ));
     return { exact, censored };
   }
 
-  function makeBand(mid, halfWidth) {
+  function makeBand(low, mid, high) {
     return {
-      low: Math.max(0, roundFive(mid - halfWidth)),
+      low: Math.max(0, roundFive(low)),
       mid: roundFive(mid),
-      high: roundFive(mid + halfWidth),
+      high: roundFive(high),
     };
+  }
+
+  function seededRandom(seedText) {
+    let seed = 2166136261;
+    for (const char of seedText) {
+      seed ^= char.charCodeAt(0);
+      seed = Math.imul(seed, 16777619);
+    }
+    return () => {
+      seed += 0x6D2B79F5;
+      let value = seed;
+      value = Math.imul(value ^ (value >>> 15), value | 1);
+      value ^= value + Math.imul(value ^ (value >>> 7), value | 61);
+      return ((value ^ (value >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function triangularSample(low, mode, high, random) {
+    if (high <= low) return low;
+    const boundedMode = Math.max(low, Math.min(high, mode));
+    const split = (boundedMode - low) / (high - low);
+    const draw = random();
+    if (draw < split) return low + Math.sqrt(draw * (high - low) * (boundedMode - low));
+    return high - Math.sqrt((1 - draw) * (high - low) * (high - boundedMode));
+  }
+
+  function ordinaryQuantile(values, quantile) {
+    if (!values.length) return 0;
+    const ordered = [...values].sort((a, b) => a - b);
+    const index = (ordered.length - 1) * quantile;
+    const lower = Math.floor(index);
+    const fraction = index - lower;
+    return ordered[lower] + ((ordered[lower + 1] ?? ordered[lower]) - ordered[lower]) * fraction;
+  }
+
+  function anchoredDistributionSample(anchors, random) {
+    const draw = random();
+    for (let index = 1; index < anchors.length; index += 1) {
+      const [rightQuantile, rightValue] = anchors[index];
+      const [leftQuantile, leftValue] = anchors[index - 1];
+      if (draw <= rightQuantile) {
+        const position = (draw - leftQuantile) / (rightQuantile - leftQuantile);
+        return leftValue + (rightValue - leftValue) * position;
+      }
+    }
+    return anchors.at(-1)[1];
+  }
+
+  function componentDistribution(partDetails, allowances, sampleCount = 12_000) {
+    const random = seededRandom(`${state.description}|${marketSales.referenceDate}`);
+    const componentSamples = [];
+    const saleSamples = [];
+    const complete = looksLikeCompleteDesktop(state.matches, state.description);
+    const profile = conditionProfile(allowances);
+
+    for (let index = 0; index < sampleCount; index += 1) {
+      let componentValue = 0;
+      for (const item of partDetails) {
+        componentValue += triangularSample(
+          item.valuation.low,
+          item.valuation.mid,
+          item.valuation.high,
+          random,
+        );
+      }
+      for (const allowance of allowances) {
+        componentValue += triangularSample(
+          allowance.low,
+          allowance.mid ?? (allowance.low + allowance.high) / 2,
+          allowance.high,
+          random,
+        );
+      }
+      componentSamples.push(componentValue);
+      const bundleFactor = complete && componentValue < 500
+        ? anchoredDistributionSample([
+          [0, 0.78],
+          [0.25, 0.85],
+          [0.5, 0.93],
+          [0.75, 1.02],
+          [1, 1.08],
+        ], random)
+        : complete
+          ? anchoredDistributionSample([
+            [0, 0.72],
+            [0.25, 0.82],
+            [0.5, 0.9],
+            [0.75, 0.98],
+            [1, 1.03],
+          ], random)
+          : 1;
+      const riskFactor = triangularSample(
+        Math.max(0.7, profile.conditionFactor - profile.riskSpread),
+        profile.conditionFactor,
+        profile.conditionFactor,
+        random,
+      );
+      saleSamples.push(componentValue * bundleFactor * riskFactor);
+    }
+
+    return { componentSamples, saleSamples, sampleCount, profile };
   }
 
   function calculateValuation() {
@@ -571,32 +1067,32 @@ PSU: Corsair 650W`;
       .map((match) => ({ match, part: byId.get(match.partId) }))
       .filter(({ part }) => Boolean(part))
       .map(({ match, part }) => ({ match, part, valuation: partValuation(part) }));
+    const componentLow = partDetails.reduce((sum, item) => sum + item.valuation.low, 0);
     const componentMid = partDetails.reduce((sum, item) => sum + item.valuation.mid, 0);
-    const componentUncertainty = Math.sqrt(partDetails.reduce((sum, item) => (
-      sum + ((item.valuation.high - item.valuation.low) / 2) ** 2
-    ), 0));
+    const componentHigh = partDetails.reduce((sum, item) => sum + item.valuation.high, 0);
 
     const allowances = unknownAllowances();
     const allowanceLow = allowances.reduce((sum, item) => sum + item.low, 0);
     const allowanceHigh = allowances.reduce((sum, item) => sum + item.high, 0);
-    const allowanceMid = (allowanceLow + allowanceHigh) / 2;
-    const completeLow = Math.max(0, componentMid + allowanceLow - componentUncertainty * 0.35);
-    const completeHigh = componentMid + allowanceHigh + componentUncertainty * 0.35;
-    const completeMid = (completeLow + completeHigh) / 2;
-    const profile = conditionProfile(completeMid, allowances);
-    const baseHalfWidth = Math.max(
-      15,
-      componentUncertainty * 0.55 + allowances.length * 2.5 + profile.riskSpread,
-    );
-
+    const allowanceMid = allowances.reduce((sum, item) => sum + (item.mid ?? (item.low + item.high) / 2), 0);
+    const distribution = componentDistribution(partDetails, allowances);
+    const completeP25 = ordinaryQuantile(distribution.componentSamples, 0.25);
+    const completeP50 = ordinaryQuantile(distribution.componentSamples, 0.5);
+    const completeP75 = ordinaryQuantile(distribution.componentSamples, 0.75);
+    let p25 = ordinaryQuantile(distribution.saleSamples, 0.25);
+    let p50 = ordinaryQuantile(distribution.saleSamples, 0.5);
+    let p75 = ordinaryQuantile(distribution.saleSamples, 0.75);
     let quick = makeBand(
-      completeMid * Math.max(0.65, profile.fairFactor - profile.quickDiscount),
-      baseHalfWidth * 0.9,
+      ordinaryQuantile(distribution.saleSamples, 0.12),
+      p25,
+      ordinaryQuantile(distribution.saleSamples, 0.35),
     );
-    let fair = makeBand(completeMid * profile.fairFactor, baseHalfWidth);
+    let fair = makeBand(p25, p50, p75);
+    const cleanCap = p50 * (1 + distribution.profile.cleanPremium);
     let clean = makeBand(
-      completeMid * Math.min(1.02, profile.fairFactor + profile.cleanPremium),
-      baseHalfWidth * 0.75,
+      Math.min(ordinaryQuantile(distribution.saleSamples, 0.65), cleanCap),
+      Math.min(p75, cleanCap),
+      Math.min(ordinaryQuantile(distribution.saleSamples, 0.85), cleanCap),
     );
 
     const comparables = systemComparables();
@@ -609,34 +1105,40 @@ PSU: Corsair 650W`;
         fair: weightedQuantile(comparables.exact, 0.5),
         clean: weightedQuantile(comparables.exact, 0.75),
       };
-      quick = makeBand(comparableBands.quick * comparableWeight + quick.mid * partsWeight, baseHalfWidth * 0.7);
-      fair = makeBand(comparableBands.fair * comparableWeight + fair.mid * partsWeight, baseHalfWidth * 0.7);
-      clean = makeBand(comparableBands.clean * comparableWeight + clean.mid * partsWeight, baseHalfWidth * 0.7);
+      p25 = comparableBands.quick * comparableWeight + p25 * partsWeight;
+      p50 = comparableBands.fair * comparableWeight + p50 * partsWeight;
+      p75 = comparableBands.clean * comparableWeight + p75 * partsWeight;
+      quick = makeBand(p25 * 0.94, p25, p50);
+      fair = makeBand(p25, p50, p75);
+      clean = makeBand(p50, p75, p75 * 1.04);
       method = `${comparables.exact.length} close, uncensored whole-PC sales blended with adjusted parts value.`;
     } else {
       const censoredCopy = comparables.censored.length
         ? ` ${comparables.censored.length} close Best Offer/upper-bound comp was excluded from the median.`
         : "";
-      method = `Fewer than 2 usable whole-PC comparables; dynamic bundle fallback used.${censoredCopy}`;
+      method = `Fewer than 2 usable whole-PC comparables; ${distribution.sampleCount.toLocaleString("en-GB")}-sample triangular component distribution and used-PC bundle factor used.${censoredCopy}`;
     }
 
     return {
       partDetails,
+      componentRange: { low: componentLow, mid: componentMid, high: componentHigh },
       componentMid,
-      componentUncertainty,
       allowances,
       allowanceLow,
+      allowanceMid,
       allowanceHigh,
       completeParts: {
-        low: roundFive(completeLow),
-        mid: roundFive(completeMid),
-        high: roundFive(completeHigh),
+        low: roundFive(completeP25),
+        mid: roundFive(completeP50),
+        high: roundFive(completeP75),
       },
       quick,
       fair,
       clean,
+      percentiles: { p25: roundFive(p25), p50: roundFive(p50), p75: roundFive(p75) },
+      sampleCount: distribution.sampleCount,
       method,
-      conditionNotes: profile.notes,
+      conditionNotes: distribution.profile.notes,
       exactComparableCount: comparables.exact.length,
       censoredComparableCount: comparables.censored.length,
     };
@@ -653,6 +1155,9 @@ PSU: Corsair 650W`;
   function renderPartRow(match) {
     const selected = byId.get(match.partId);
     const category = CATEGORY_META[match.category];
+    const categoryShort = match.category === "storage" && match.entity.storageMedium === "hdd"
+      ? "HDD"
+      : category.short;
     const identification = identificationConfidence(match);
     const valuation = partValuation(selected);
     const options = [...new Set([match.partId, ...match.alternatives])]
@@ -663,15 +1168,20 @@ PSU: Corsair 650W`;
 
     return `
       <div class="part-row" data-match-id="${match.uid}">
-        <span class="category-icon" aria-hidden="true">${category.short}</span>
+        <span class="category-icon" aria-hidden="true">${categoryShort}</span>
         <span class="part-category">${category.label}</span>
         <div class="part-selection">
           <label class="sr-only" for="select-${match.uid}">Matched ${category.label}</label>
           <select id="select-${match.uid}" data-action="change-part">${options}</select>
           <div class="match-meta">
-            <span class="match-pill ${identification.className}">Identification: ${identification.label}</span>
+            <span class="match-pill ${match.familyIdentification}">Family: ${match.familyIdentification[0].toUpperCase()}${match.familyIdentification.slice(1)}</span>
+            <span class="match-pill ${match.variantIdentification}">Variant: ${match.variantIdentification[0].toUpperCase()}${match.variantIdentification.slice(1)}</span>
             <span class="match-pill ${valuation.confidence}">Value: ${valuation.confidence[0].toUpperCase()}${valuation.confidence.slice(1)}</span>
-            <span title="${escapeHtml(match.segment)}">from “${escapeHtml(match.segment.slice(0, 48))}${match.segment.length > 48 ? "…" : ""}”</span>
+            <span title="${escapeHtml(match.segment)}">Extracted “${escapeHtml(extractedEntityLabel(match.entity))}” from “${escapeHtml(match.segment.slice(0, 48))}${match.segment.length > 48 ? "…" : ""}”</span>
+            ${match.entity.parsedArithmetic ? `<span>${escapeHtml(match.entity.parsedArithmetic)}</span>` : ""}
+            <span>${escapeHtml(match.matched ? `Matched by ${match.matchReason}` : "No safe catalogue match")}</span>
+            ${match.inferences.map((inference) => `<span>${escapeHtml(inference)}</span>`).join("")}
+            ${match.conflicts?.length ? `<span>Rejected conflicts: ${escapeHtml(match.conflicts.join(", "))}</span>` : ""}
           </div>
         </div>
         <strong class="part-price">${formatRange(valuation)}</strong>
@@ -688,13 +1198,14 @@ PSU: Corsair 650W`;
   }
 
   function buildWarnings(valuation) {
-    const found = new Set(state.matches.map((match) => match.category));
+    const found = new Set(state.matches.filter((match) => match.matched).map((match) => match.category));
     const allowanceKeys = new Set(valuation.allowances.map((item) => item.key));
     const missing = Object.entries(CATEGORY_META)
       .filter(([key, meta]) => meta.required && !found.has(key) && !allowanceKeys.has(key))
       .map(([, meta]) => meta.label);
     const lowIdentification = state.matches.filter((match) => identificationConfidence(match).className === "low");
     const lowValuation = valuation.partDetails.filter((item) => item.valuation.confidence === "low");
+    const unmatched = state.matches.filter((match) => !match.matched);
     const text = normalize(state.description);
     const warnings = [];
 
@@ -719,8 +1230,16 @@ PSU: Corsair 650W`;
       warnings.push(warningMarkup("warning", "Weak identification to review", `${lowIdentification.length} component ${lowIdentification.length === 1 ? "has" : "have"} low identification confidence.`));
     }
 
+    if (unmatched.length) {
+      warnings.push(warningMarkup(
+        "warning",
+        "No unsafe substitutions made",
+        `${unmatched.length} extracted ${unmatched.length === 1 ? "entity has" : "entities have"} no conflict-free catalogue match and remains unpriced.`,
+      ));
+    }
+
     if (lowValuation.length) {
-      warnings.push(warningMarkup("warning", "Wide price uncertainty", `${lowValuation.length} identified component ${lowValuation.length === 1 ? "has" : "have"} low valuation confidence.`));
+      warnings.push(warningMarkup("warning", "Wide price uncertainty", `${lowValuation.length} identified ${lowValuation.length === 1 ? "component has" : "components have"} low valuation confidence.`));
     }
 
     if (/rtx 5060 ti 16gb/.test(text) && !/\bti\b/.test(normalize(state.description))) {
@@ -733,6 +1252,16 @@ PSU: Corsair 650W`;
 
     if (state.matches.some((match) => /interface unknown/.test(byId.get(match.partId)?.name ?? ""))) {
       warnings.push(warningMarkup("warning", "SSD interface missing", "NVMe and SATA drives have different values."));
+    }
+
+    if (state.matches.some((match) => (
+      match.category === "psu" && /brand\/model unknown/i.test(byId.get(match.partId)?.name ?? "")
+    )) || valuation.allowances.some((item) => item.key === "psu" && item.risk)) {
+      warnings.push(warningMarkup(
+        "warning",
+        "Unknown PSU replacement risk",
+        "The PSU receives only a token allowance; brand, protection quality and remaining life are unverified.",
+      ));
     }
 
     for (const note of valuation.conditionNotes) {
@@ -765,7 +1294,7 @@ PSU: Corsair 650W`;
     elements.emptyState.hidden = true;
     elements.resultsContent.hidden = false;
     elements.partsList.innerHTML = state.matches.map(renderPartRow).join("");
-    elements.partsTotal.textContent = formatGBP(roundFive(valuation.componentMid));
+    elements.partsTotal.textContent = formatRange(valuation.componentRange);
     elements.allowanceValue.textContent = valuation.allowances.length
       ? formatRange({ low: valuation.allowanceLow, high: valuation.allowanceHigh })
       : "£0";
@@ -776,12 +1305,13 @@ PSU: Corsair 650W`;
     elements.quickValue.textContent = formatRange(valuation.quick);
     elements.fairValue.textContent = formatRange(valuation.fair);
     elements.cleanValue.textContent = formatRange(valuation.clean);
+    elements.percentileSummary.textContent = `P25 ${formatGBP(valuation.percentiles.p25)} · P50 ${formatGBP(valuation.percentiles.p50)} · P75 ${formatGBP(valuation.percentiles.p75)}`;
     elements.matchCount.textContent = `${state.matches.length} ${state.matches.length === 1 ? "part" : "parts"}`;
     elements.matchSummary.textContent = state.matches.length
       ? `Found ${state.matches.length} priced ${state.matches.length === 1 ? "component" : "components"}${valuation.allowances.length ? ` plus ${valuation.allowances.length} essential ${valuation.allowances.length === 1 ? "allowance" : "allowances"}` : ""}.`
       : "No reliable component matches were found.";
     elements.warningsList.innerHTML = buildWarnings(valuation);
-    elements.valuationMethod.textContent = `${valuation.method} Seller/item prices exclude Buyer Protection and delivery.`;
+    elements.valuationMethod.textContent = `${valuation.method} This is the seller/item price before any seller fees; the buyer's all-in total, Buyer Protection and delivery are excluded.`;
 
     if (averageIdentification >= 0.84 && averageValuation >= 2.6 && !valuation.allowances.length) {
       elements.overallConfidence.textContent = "High confidence";
@@ -843,6 +1373,11 @@ PSU: Corsair 650W`;
     if (!match) return;
     match.partId = select.value;
     match.matchScore = Math.max(match.matchScore, 0.72);
+    match.matched = !byId.get(select.value)?.isUnmatched;
+    match.familyIdentification = "high";
+    match.variantIdentification = byId.get(select.value)?._identity?.variant === "unknown" ? "low" : "high";
+    match.variantAmbiguous = match.variantIdentification === "low";
+    match.matchReason = "manual correction";
     render();
   });
 
@@ -860,18 +1395,21 @@ PSU: Corsair 650W`;
       elements.manualSearch.focus();
       return;
     }
-    const best = rankCandidates(query, null, 1)[0];
-    if (!best || best.score < 0.24) return;
+    const entity = entityFromQuery(query, null);
+    const best = entity ? rankCandidates(entity, entity.componentType, 1)[0] : null;
+    if (!best) return;
 
     const duplicate = best.part.category === "storage"
-      ? state.matches.find((match) => match.category === "storage" && isLikelyDuplicateStorage(match, best, query))
+      ? state.matches.find((match) => (
+        match.category === "storage" && storageEntitySignature(match.entity) === storageEntitySignature(entity)
+      ))
       : state.matches.find((match) => match.category === best.part.category || match.partId === best.part.id);
     if (duplicate) {
       elements.manualSearch.value = "";
       return;
     }
 
-    state.matches.push(makeMatch(best, query, best.part.category));
+    state.matches.push(makeMatch(best, entity));
     elements.manualSearch.value = "";
     render();
   });
@@ -882,15 +1420,19 @@ PSU: Corsair 650W`;
 
   window.RigWorth = {
     analyseDescription,
+    extractComponentEntities,
+    parseProductIdentity,
     rankCandidates,
     estimateDescription: (description) => {
       const previousDescription = state.description;
       const previousMatches = state.matches;
       state.description = description;
       state.matches = analyseDescription(description);
+      const valuation = calculateValuation();
       const estimate = {
         matches: state.matches.map((match) => ({ ...match, part: byId.get(match.partId) })),
-        valuation: calculateValuation(),
+        valuation,
+        warningsHtml: buildWarnings(valuation),
       };
       state.description = previousDescription;
       state.matches = previousMatches;

@@ -570,6 +570,25 @@ Allow approximately **£70–£120** for the PSU, case, and cooler. Likely parts
 - `RTX 3060` may be 8GB or 12GB. Do not automatically assign the 12GB value.
 - `16GB DDR4` should default to one 16GB stick unless `2×8GB` or two modules are shown.
 - `Corsair PSU` cannot be valued accurately without the model and wattage. £32 is only a fallback for an unspecified 650W Corsair unit.
+
+## Structured matcher catalogue additions — 25 July 2026
+
+These are UK used private-sale ranges used by RigWorth when the component
+identity is exact or when the named generic fallback applies. They are kept
+separate from new-retail pricing and from Buyer Protection or delivery charges.
+
+| Component | Used private-sale range | Matching / metadata note |
+|---|---:|---|
+| AMD Ryzen 5 4500 | **£40–£55** | AMD · Ryzen 5 · 4500 |
+| GeForce RTX 3050 6GB | **£100–£140** | NVIDIA · GeForce RTX · 3050 · 6GB |
+| GeForce RTX 3050 8GB | **£125–£155** | NVIDIA · GeForce RTX · 3050 · 8GB |
+| GeForce RTX 3050, VRAM unspecified | **£100–£155** | Parent entry; variant identification remains low |
+| WD Green SN3000 1TB | **£65–£85** | NVMe · M.2 2280 · PCIe Gen4 x4 · WDS100T4G0E |
+| Unknown functional AM4 motherboard | **£25–£45** | Inferred allowance only; never presented as an exact model |
+| Unknown compatible Intel 300-series motherboard | **£30–£50** | Inferred for an i5-8400-class complete PC |
+| Unknown functional case | **£10–£25** | Inferred allowance only |
+| Unknown/basic CPU cooler | **£0–£8** | Inferred allowance only |
+| Unknown-brand 500W PSU | **£0–£10** | Low confidence; replacement-risk warning required |
 - “Never overclocked” does not normally add value without test evidence.
 - A seller warranty adds value only if it is still valid and transferable.
 

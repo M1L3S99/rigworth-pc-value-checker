@@ -81,6 +81,7 @@ PSU: Corsair 650W"></textarea>
                 <span id="overallConfidenceDot" class="confidence-dot"></span>
                 <span id="overallConfidence">Review needed</span>
               </div>
+              <span id="percentileSummary">P25 £0 · P50 £0 · P75 £0</span>
             </article>
             <article class="value-card">
               <p>Priced-component subtotal</p>
@@ -161,8 +162,8 @@ PSU: Corsair 650W"></textarea>
         </div>
         <ol class="method-steps">
           <li><span>1</span><div><strong>Extract</strong><p>Recognises model numbers, capacities and common abbreviations.</p></div></li>
-          <li><span>2</span><div><strong>Match</strong><p>Ranks close catalogue results and labels vague descriptions.</p></div></li>
-          <li><span>3</span><div><strong>Value</strong><p>Blends close whole-PC sales with a dynamic adjusted-parts fallback.</p></div></li>
+          <li><span>2</span><div><strong>Match</strong><p>Rejects category, maker, model, capacity and variant conflicts before ranking.</p></div></li>
+          <li><span>3</span><div><strong>Value</strong><p>Uses weighted sold comparables or a 12,000-sample component fallback.</p></div></li>
         </ol>
       </section>
     </main>
@@ -173,8 +174,8 @@ PSU: Corsair 650W"></textarea>
     </footer>
   </div>
 
-  <script src="parts-data.js?v=20260725-2"></script>
+  <script src="parts-data.js?v=20260725-3"></script>
   <script src="sales-data.js?v=20260725-2"></script>
-  <script src="app.js?v=20260725-3"></script>
+  <script src="app.js?v=20260725-5"></script>
 </body>
 </html>

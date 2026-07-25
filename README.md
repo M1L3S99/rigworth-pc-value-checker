@@ -4,11 +4,12 @@ RigWorth turns a pasted PC specification into matched components and an estimate
 
 ## Features
 
-- Matches informal marketplace descriptions against 399 component price records
-- Shows individual part prices and a combined parts total
-- Estimates quick-sale, fair, and clean/presented whole-PC values
+- Extracts separate typed component entities before catalogue matching
+- Safely matches informal descriptions against 410 dated component price records
+- Shows individual price ranges, inferred allowances, source phrases, and capacity arithmetic
+- Estimates P25/P50/P75 whole-PC values from sold comparables or a 12,000-sample fallback
 - Lets users correct uncertain matches with alternative dropdowns
-- Flags missing or ambiguous components
+- Flags missing, ambiguous, conflicting, and unknown-risk components
 
 Prices are rough UK used-market references based on sold/completed listing research. They are estimates rather than guaranteed sale prices.
 
@@ -25,4 +26,3 @@ Then open `http://127.0.0.1:4173/`.
 ```sh
 npm run check
 ```
-
