@@ -627,7 +627,11 @@ PSU: Corsair 650W`;
       allowances,
       allowanceLow,
       allowanceHigh,
-      completeParts: { low: completeLow, mid: completeMid, high: completeHigh },
+      completeParts: {
+        low: roundFive(completeLow),
+        mid: roundFive(completeMid),
+        high: roundFive(completeHigh),
+      },
       quick,
       fair,
       clean,
