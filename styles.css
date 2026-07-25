@@ -305,6 +305,11 @@ select:focus {
   text-align: center;
 }
 
+.results-empty[hidden],
+.results-content[hidden] {
+  display: none;
+}
+
 .empty-visual {
   display: flex;
   gap: 8px;
@@ -366,7 +371,7 @@ select:focus {
 
 .valuation-grid {
   display: grid;
-  grid-template-columns: 1.6fr repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-bottom: 18px;
 }
@@ -410,7 +415,7 @@ select:focus {
 .hero-price {
   color: var(--lime);
   font-family: Georgia, "Times New Roman", serif;
-  font-size: clamp(3.4rem, 5vw, 5.2rem);
+  font-size: clamp(2.8rem, 4vw, 4.5rem);
   line-height: 0.85;
   letter-spacing: -0.06em;
 }
@@ -471,7 +476,7 @@ select:focus {
 
 .part-row {
   display: grid;
-  grid-template-columns: 46px 96px minmax(180px, 1fr) 96px 42px;
+  grid-template-columns: 46px 96px minmax(180px, 1fr) 142px 42px;
   align-items: center;
   gap: 12px;
   padding: 17px 0;
@@ -514,6 +519,7 @@ select:focus {
 .match-meta {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 8px;
   margin-top: 6px;
   color: var(--muted);
@@ -766,7 +772,7 @@ footer a {
   }
 
   .value-card--primary {
-    grid-column: 1 / -1;
+    grid-column: auto;
   }
 
   .workspace-grid {
@@ -846,7 +852,7 @@ footer a {
   }
 
   .part-row {
-    grid-template-columns: 42px 1fr 70px 34px;
+    grid-template-columns: 42px 1fr 92px 34px;
   }
 
   .part-category {
@@ -854,7 +860,7 @@ footer a {
   }
 
   .part-price {
-    font-size: 1.2rem;
+    font-size: 1.05rem;
   }
 
   .add-part {
@@ -894,7 +900,7 @@ footer a {
   }
 
   .part-row {
-    grid-template-columns: 38px minmax(0, 1fr) 62px 30px;
+    grid-template-columns: 38px minmax(0, 1fr) 82px 30px;
     gap: 8px;
   }
 

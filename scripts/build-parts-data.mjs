@@ -24,6 +24,13 @@ const entries = [];
 let category = null;
 let headers = null;
 
+const rangeOverrides = new Map([
+  ["cpu|ryzen 7 5800x", { price: 140, priceLow: 132, priceHigh: 150, valuationConfidence: "medium", evidenceNote: "Recent UK private-sale evidence; Buyer Protection excluded." }],
+  ["gpu|geforce rtx 4060", { price: 230, priceLow: 220, priceHigh: 241, valuationConfidence: "medium", evidenceNote: "Recent UK used-sale range." }],
+  ["motherboard|msi b450 tomahawk max", { priceLow: 50, priceHigh: 60, valuationConfidence: "medium" }],
+  ["storage|1tb m.2 nvme ssd", { price: 87, priceLow: 84, priceHigh: 90, valuationConfidence: "medium", evidenceNote: "Identifiable used NVMe evidence; delivery excluded." }],
+]);
+
 function cleanCell(value) {
   return value
     .trim()
@@ -85,19 +92,26 @@ for (const line of lines) {
   });
 }
 
+for (const entry of entries) {
+  const override = rangeOverrides.get(`${entry.category}|${entry.name}`.toLowerCase());
+  if (override) Object.assign(entry, override);
+}
+
 const manualFallbacks = [
   { id: "ram-generic-16-ddr4", category: "ram", name: "16GB DDR4 (configuration unknown)", alias: "16GB RAM DDR4", price: 45, confidence: "medium" },
-  { id: "ram-generic-32-ddr4", category: "ram", name: "32GB DDR4 (configuration unknown)", alias: "32GB RAM DDR4", price: 85, confidence: "medium" },
+  { id: "ram-generic-32-ddr4-3600", category: "ram", name: "32GB DDR4 3600MHz (configuration/model unknown)", alias: "32GB RAM DDR4 3600 32GB DDR4-3600", price: 115, priceLow: 85, priceHigh: 150, confidence: "medium", valuationConfidence: "medium" },
+  { id: "ram-generic-32-ddr4", category: "ram", name: "32GB DDR4 (configuration unknown)", alias: "32GB RAM DDR4", price: 100, priceLow: 75, priceHigh: 130, confidence: "medium", valuationConfidence: "medium" },
   { id: "ram-generic-16-ddr5", category: "ram", name: "16GB DDR5 (configuration unknown)", alias: "16GB RAM DDR5", price: 45, confidence: "medium" },
   { id: "ram-generic-32-ddr5", category: "ram", name: "32GB DDR5 (configuration unknown)", alias: "32GB RAM DDR5", price: 95, confidence: "medium" },
   { id: "storage-generic-500-ssd", category: "storage", name: "500GB SSD (interface unknown)", alias: "500GB SSD 512GB SSD", price: 35, confidence: "medium" },
   { id: "storage-generic-1tb-ssd", category: "storage", name: "1TB SSD (interface unknown)", alias: "1TB SSD 1000GB SSD", price: 75, confidence: "medium" },
   { id: "storage-generic-2tb-ssd", category: "storage", name: "2TB SSD (interface unknown)", alias: "2TB SSD", price: 145, confidence: "medium" },
-  { id: "psu-generic-corsair", category: "psu", name: "Corsair PSU (model and wattage unknown)", alias: "Corsair power supply Corsair PSU", price: 25, confidence: "low" },
-  { id: "psu-generic-500", category: "psu", name: "500W PSU (brand/model unknown)", alias: "500 watt power supply 500W PSU", price: 10, confidence: "low" },
-  { id: "psu-generic-600", category: "psu", name: "600–650W PSU (brand/model unknown)", alias: "600W PSU 650W PSU power supply", price: 20, confidence: "low" },
-  { id: "case-generic", category: "case", name: "Basic generic ATX case", alias: "PC case gaming case chassis", price: 20, confidence: "medium" },
-  { id: "cooler-generic", category: "cooler", name: "Basic CPU air cooler", alias: "CPU cooler air cooler heatsink", price: 10, confidence: "low" },
+  { id: "storage-generic-1tb-nvme", category: "storage", name: "1TB NVMe SSD — model and health unknown", alias: "1TB NVMe SSD 1TB NVME M.2 NVMe PCIe SSD PCI-E SSD Gen3 SSD Gen4 SSD Gen5 SSD", price: 87, priceLow: 84, priceHigh: 90, confidence: "medium", valuationConfidence: "medium" },
+  { id: "psu-generic-corsair", category: "psu", name: "Corsair PSU (model and wattage unknown)", alias: "Corsair power supply Corsair PSU", price: 23, priceLow: 15, priceHigh: 30, confidence: "low", valuationConfidence: "low" },
+  { id: "psu-generic-500", category: "psu", name: "500W PSU (brand/model unknown)", alias: "500 watt power supply 500W PSU", price: 18, priceLow: 10, priceHigh: 25, confidence: "low", valuationConfidence: "low" },
+  { id: "psu-generic-600", category: "psu", name: "600–650W PSU (brand/model unknown)", alias: "600W PSU 650W PSU power supply", price: 23, priceLow: 15, priceHigh: 30, confidence: "low", valuationConfidence: "low" },
+  { id: "case-generic", category: "case", name: "Unknown functional case", alias: "PC case gaming case chassis", price: 30, priceLow: 20, priceHigh: 40, confidence: "low", valuationConfidence: "low" },
+  { id: "cooler-generic", category: "cooler", name: "Unknown functional CPU cooler", alias: "CPU cooler air cooler heatsink", price: 15, priceLow: 10, priceHigh: 20, confidence: "low", valuationConfidence: "low" },
 ];
 
 const unique = new Map();
