@@ -1,0 +1,10 @@
+This Excellent 1080p Gaming PC is a high-performance desktop computer tailored for gamers.
+Built by PC Specialist in a black tower.
+
+Specs:
+I7-10700F CPU
+1x16GB DDR4 2400mhz RAM
+1TB 2.5 SATA SSD
+Corsair CV450 PSU
+GeForce GTX 1650 GPU
+Windows 11 Home Operating System

@@ -58,6 +58,48 @@ window.PC_MARKET_SALES = {
       bestOfferAccepted: null,
       priceType: "displayed-checkout-only",
       sourceUrl: "https://www.ebay.co.uk/itm/398109635863"
+    },
+    {
+      id: "ebay-287309830558",
+      partId: "cpu-intel-core-i7-10700f",
+      soldDate: "2026-06-10",
+      itemPrice: 110,
+      buyerProtectionFee: 4.25,
+      delivery: null,
+      checkoutTotal: 114.25,
+      sellerType: "private",
+      condition: "used",
+      bestOfferAccepted: false,
+      priceType: "exact",
+      sourceUrl: "https://www.ebay.co.uk/itm/287309830558"
+    },
+    {
+      id: "ebay-377310181972",
+      partId: "gpu-geforce-gtx-1650",
+      soldDate: "2026-07-04",
+      itemPrice: 61.82,
+      buyerProtectionFee: 2.64,
+      delivery: null,
+      checkoutTotal: 64.46,
+      sellerType: "private",
+      condition: "used",
+      bestOfferAccepted: false,
+      priceType: "exact",
+      sourceUrl: "https://www.ebay.co.uk/itm/377310181972"
+    },
+    {
+      id: "ebay-198083064172",
+      partId: "psu-corsair-cv450",
+      soldDate: "2026-02-06",
+      itemPrice: 19.99,
+      buyerProtectionFee: 1.25,
+      delivery: null,
+      checkoutTotal: 21.24,
+      sellerType: "private",
+      condition: "used",
+      bestOfferAccepted: false,
+      priceType: "exact",
+      sourceUrl: "https://www.ebay.co.uk/itm/198083064172"
     }
   ],
   systems: [
@@ -77,6 +119,26 @@ window.PC_MARKET_SALES = {
       ramGb: 32,
       storageGb: 1000,
       sourceUrl: "https://www.ebay.co.uk/itm/198330682047"
+    },
+    {
+      id: "ebay-358840159028",
+      soldDate: null,
+      itemPrice: 481,
+      buyerProtectionFee: null,
+      delivery: 0,
+      checkoutTotal: null,
+      sellerType: "private",
+      condition: "used",
+      listingStatus: "active",
+      bestOfferAccepted: false,
+      priceType: "asking",
+      cpu: "Core i7-10700F",
+      gpu: "GeForce GTX 1650",
+      ramGb: 16,
+      ssdGb: 1000,
+      hddGb: 0,
+      psu: "Corsair CV450",
+      sourceUrl: "https://www.ebay.co.uk/itm/358840159028"
     }
   ]
 };

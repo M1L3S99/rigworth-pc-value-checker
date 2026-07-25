@@ -88,7 +88,7 @@ PSU: Corsair 650W`;
 
     push("cpu", /\b(cpu|processor|ryzen|threadripper|fx\d|a\d-\d|core i[3579]|i[3579][ -]?\d{4,5}(?:k|kf|f|s|t)?)\b/.test(text));
     push("gpu", /\b(gpu|graphics|video card|geforce|rtx(?:\s?\d{4})?|gtx(?:\s?\d{3,4})?|radeon|rx ?\d{3,4}|arc [ab]\d{3})\b/.test(text));
-    push("motherboard", /\b(motherboard|mobo|mainboard|a320|b350|b450|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z77|z87|z97|z170|z270|z370|z390|z490|z590|z690|z790|z890|h61|h81|h110|h310|b360|b365|h370)\b/.test(text));
+    push("motherboard", /\b(motherboard|mobo|mainboard|a320|b350|b450|b460|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z77|z87|z97|z170|z270|z370|z390|z490|z590|z690|z790|z890|h61|h81|h110|h310|h410|h470|b360|b365|h370)\b/.test(text));
     push("ram", /\b(ram|memory|ddr[345]|dimm|sodimm)\b/.test(text));
     push("storage", /\b(storage|ssd|hdd|nvme|m2|hard drive|hard disk|barracuda|ironwolf|sn\d{3,4}|evo|mx500)\b/.test(text));
     push("psu", /\b(psu|power supply|corsair (?:cv|cx|rm|sf)|seasonic focus|evga supernova|pure power|system power|mwe|a650bn|a750gl)\b/.test(text));
@@ -161,12 +161,15 @@ PSU: Corsair 650W`;
       storageMedium: supplied.storageMedium ? normalize(supplied.storageMedium) : null,
       interface: supplied.interface ? normalize(supplied.interface) : null,
       wattage: Number.isFinite(supplied.wattage) ? supplied.wattage : null,
+      speedMhz: Number.isFinite(supplied.speedMhz) ? supplied.speedMhz : null,
+      formFactor: supplied.formFactor ? normalize(supplied.formFactor) : null,
       qualifiers: [],
     };
 
     if (category === "cpu") {
       const ryzen = text.match(/\bryzen\s+([3579])\s+(\d{4,5}(?:x3d|xt|x|g)?)\b/);
       const intel = text.match(/\bcore\s+(i[3579])[- ]?(\d{4,5}(?:k|kf|f|ks|s|t)?)\b/);
+      const intelShort = text.match(/\b(i[3579])[- ]?(\d{4,5}(?:k|kf|f|ks|s|t)?)\b/);
       const ultra = text.match(/\bcore\s+ultra\s+([3579])\s+(\d{3}[a-z]?)\b/);
       if (ryzen) {
         identity.family ??= `ryzen ${ryzen[1]}`;
@@ -174,6 +177,9 @@ PSU: Corsair 650W`;
       } else if (intel) {
         identity.family ??= `core ${intel[1]}`;
         identity.modelNumber ??= intel[2];
+      } else if (intelShort) {
+        identity.family ??= `core ${intelShort[1]}`;
+        identity.modelNumber ??= intelShort[2];
       } else if (ultra) {
         identity.family ??= `core ultra ${ultra[1]}`;
         identity.modelNumber ??= ultra[2];
@@ -209,10 +215,16 @@ PSU: Corsair 650W`;
         if (/\b(nvme|pcie|gen[345])\b/.test(text)) identity.interface = "nvme";
         else if (/\bsata\b/.test(text)) identity.interface = "sata";
       }
+      if (!identity.formFactor) {
+        if (/\b2[.]5(?:-inch| inch)?\b/.test(text)) identity.formFactor = "2.5-inch";
+        else if (/\bm2\b/.test(text)) identity.formFactor = "m.2";
+      }
     } else if (category === "ram") {
       identity.family ??= text.match(/\bddr[345]\b/)?.[0] ?? null;
       const capacity = text.match(/\b(\d+)gb\b/);
       identity.capacityGb ??= capacity ? Number(capacity[1]) : null;
+      const speed = text.match(/\b(\d{4,5})mhz\b/);
+      identity.speedMhz ??= speed ? Number(speed[1]) : null;
     } else if (category === "motherboard") {
       identity.family ??= text.match(/\b(a320|b350|b450|b550|b650|b660|b760|b850|x370|x470|x570|x670|x870|z\d{2,3}|h\d{2,3})\b/)?.[1] ?? null;
     } else if (category === "psu") {
@@ -278,7 +290,9 @@ PSU: Corsair 650W`;
       totalCapacity: null,
       storageMedium: null,
       interface: null,
+      formFactor: null,
       wattage: null,
+      speedMhz: null,
       qualifiers: [],
       sourceText,
       sourceStart,
@@ -296,7 +310,9 @@ PSU: Corsair 650W`;
       capacityGb: entity.totalCapacity ?? entity.capacity,
       storageMedium: entity.storageMedium,
       interface: entity.interface,
+      formFactor: entity.formFactor,
       wattage: entity.wattage,
+      speedMhz: entity.speedMhz,
     });
     entity.manufacturer = identity.manufacturer;
     entity.productFamily = identity.family;
@@ -306,7 +322,9 @@ PSU: Corsair 650W`;
     entity.totalCapacity ??= identity.capacityGb;
     entity.storageMedium ??= identity.storageMedium;
     entity.interface ??= identity.interface;
+    entity.formFactor ??= identity.formFactor;
     entity.wattage ??= identity.wattage;
+    entity.speedMhz ??= identity.speedMhz;
     entity.qualifiers = [...new Set([...entity.qualifiers, ...identity.qualifiers])];
     return entity;
   }
@@ -339,18 +357,19 @@ PSU: Corsair 650W`;
       let storageCount = 0;
 
       if (categories.includes("storage")) {
-        const storagePattern = /\b(\d+(?:\.\d+)?)\s*(gb|gigabytes?|tb|terabytes?)\s*(?:(m\s*\.?\s*2|nvme|sata|pcie|pci-e)\s*)?(ssd|solid[\s-]*state(?:\s+drive)?|hdd|hard[\s-]*(?:disk|drive))\b/gi;
+        const storagePattern = /\b(\d+(?:\.\d+)?)\s*(gb|gigabytes?|tb|terabytes?)\s*(?:(2[.]5(?:-inch|["”])?)\s*)?(?:(m\s*\.?\s*2|nvme|sata|pcie|pci-e)\s*)?(ssd|solid[\s-]*state(?:\s+drive)?|hdd|hard[\s-]*(?:disk|drive))\b/gi;
         const storageMatches = [...source.matchAll(storagePattern)];
         for (const match of storageMatches) {
           const capacity = capacityToGb(match[1], match[2]);
-          const device = normalize(match[4]);
+          const device = normalize(match[5]);
           const storageMedium = /\bhdd\b/.test(device) ? "hdd" : "ssd";
-          const explicitInterface = normalize(match[3] ?? "");
+          const explicitInterface = normalize(match[4] ?? "");
           const interfaceName = /\b(nvme|pcie|m2)\b/.test(explicitInterface)
             ? "nvme"
             : /\bsata\b/.test(explicitInterface)
               ? "sata"
               : null;
+          const formFactor = match[3] ? "2.5-inch" : /\bm2\b/.test(explicitInterface) ? "m.2" : null;
           const useWholeChunk = storageMatches.length === 1 && categories.length === 1;
           const storageSource = useWholeChunk ? source : match[0];
           const start = useWholeChunk ? chunkStart : chunkStart + match.index;
@@ -359,6 +378,7 @@ PSU: Corsair 650W`;
             totalCapacity: capacity,
             storageMedium,
             interface: interfaceName,
+            formFactor,
             containerStart: chunkStart,
             parsedArithmetic: `${displayCapacity(capacity)} ${storageMedium.toUpperCase()}; one storage device`,
           }));
@@ -437,6 +457,13 @@ PSU: Corsair 650W`;
       && entity.interface !== partIdentity.interface) {
       return "storage-interface conflict";
     }
+    if (entity.formFactor && partIdentity.formFactor
+      && normalize(entity.formFactor) !== normalize(partIdentity.formFactor)) {
+      return "storage-form-factor conflict";
+    }
+    if (entity.speedMhz && partIdentity.speedMhz && entity.speedMhz !== partIdentity.speedMhz) {
+      return "memory-speed conflict";
+    }
     if (entity.componentType === "ram" && entity.quantity !== null && entity.unitCapacity !== null
       && entity.totalCapacity !== entity.quantity * entity.unitCapacity) {
       return "RAM quantity arithmetic conflict";
@@ -503,6 +530,8 @@ PSU: Corsair 650W`;
     let preference = 0;
     if (entity.componentType === "gpu" && !entity.variant && identity.variant === "unknown") preference += 20;
     if (entity.componentType === "storage" && entity.modelNumber && identity.modelNumber) preference += 10;
+    if (entity.componentType === "storage" && entity.formFactor && identity.formFactor === entity.formFactor) preference += 15;
+    if (entity.componentType === "ram" && entity.speedMhz && identity.speedMhz === entity.speedMhz) preference += 15;
     if (part.genericVariant) preference += 20;
     return {
       part,
@@ -819,13 +848,37 @@ PSU: Corsair 650W`;
         { inferredFrom: cpu.name },
       );
     }
-    if (identity.manufacturer === "intel" && identity.family === "core i5" && /^8\d{3}/.test(model)) {
+    if (identity.manufacturer === "amd" && /^[7-9]\d{3}/.test(model)) {
       return catalogueAllowance(
-        "motherboard-unknown-intel-300",
+        "motherboard-unknown-am5",
         "motherboard",
-        "Unknown compatible Intel 300-series motherboard",
+        "Unknown functional AM5 motherboard",
         { inferredFrom: cpu.name },
       );
+    }
+    if (identity.manufacturer === "intel") {
+      const generation = Math.floor(Number.parseInt(model, 10) / 1000);
+      const platform = identity.family?.startsWith("core ultra")
+        ? ["motherboard-unknown-lga1851", "Unknown functional LGA1851 motherboard"]
+        : generation <= 5
+        ? ["motherboard-unknown-intel-legacy", "Unknown compatible legacy Intel motherboard"]
+        : generation <= 7
+          ? ["motherboard-unknown-lga1151", "Unknown functional LGA1151 motherboard"]
+          : generation <= 9
+            ? ["motherboard-unknown-intel-300", "Unknown compatible Intel 300-series motherboard"]
+            : generation <= 11
+              ? ["motherboard-unknown-lga1200", "Unknown functional LGA1200 motherboard"]
+              : generation <= 14
+                ? ["motherboard-unknown-lga1700", "Unknown functional LGA1700 motherboard"]
+                : null;
+      if (platform) {
+        return catalogueAllowance(
+          platform[0],
+          "motherboard",
+          platform[1],
+          { inferredFrom: cpu.name },
+        );
+      }
     }
     return null;
   }
@@ -1246,7 +1299,15 @@ PSU: Corsair 650W`;
       warnings.push(warningMarkup("warning", "Interpreted RTX 5060 16GB", "This was treated as RTX 5060 Ti 16GB; confirm the Ti label."));
     }
 
-    if (/corsair/.test(text) && /\b(psu|power supply)\b/.test(text) && !/\b\d{3,4}w\b/.test(text)) {
+    const matchedPsuHasKnownWattage = state.matches.some((match) => (
+      match.category === "psu" && Number.isFinite(byId.get(match.partId)?.wattage)
+    ));
+    if (
+      /corsair/.test(text)
+      && /\b(psu|power supply)\b/.test(text)
+      && !/\b\d{3,4}w\b/.test(text)
+      && !matchedPsuHasKnownWattage
+    ) {
       warnings.push(warningMarkup("warning", "PSU wattage missing", "A modest value range is included, but the unknown model increases buyer risk."));
     }
 
